@@ -111,6 +111,19 @@ See `src/modules/product-costs/lib/economics.ts` for the implementation and
 `src/modules/product-costs/lib/economics.test.ts`-equivalent (`__tests__/economics.test.ts`) for
 the edge cases codified as tests.
 
+The `grossCost = netCost * (1 + vatRate)` gross-up above is computed once, unrounded, and that
+_unrounded_ value is what feeds `netIncome` and `breakEvenPrice` - not the rounded `grossCost`
+field the result exposes. Each of the three outputs rounds itself once, independently, from that
+same unrounded gross-up. Rounding the gross-up to 2 places first and then dividing/subtracting with
+the rounded value would double-round and can land a cent off from the true figure -
+`breakEvenPrice` in particular is meant to be a price floor, so rounding it down by a cent (the
+direction double-rounding happened to produce) is the unsafe direction to be wrong in.
+
+`computeEconomics` is service-level only in this wave - there is no `/admin/product-costs/economics`
+(or similar) HTTP route. Call `ProductCostsModuleService.computeEconomics` directly from
+server-side code in the same Medusa app (another module, a workflow, a script) if you need it;
+don't mistake its absence from the admin API section below for a missing feature in the shipped UI.
+
 ## Admin API
 
 All routes are under `/admin/product-costs` and use Medusa's standard admin authentication (no
@@ -124,8 +137,12 @@ List/search curated costs.
 | ----------- | ------------------------------------------------------------- |
 | `q`         | Case-insensitive substring search on SKU.                     |
 | `sku`       | Repeatable (`?sku=A&sku=B`) - filter to an exact set of SKUs. |
-| `limit`     | Page size. Default `20`.                                      |
+| `limit`     | Page size. Default `20`, capped at `500`.                     |
 | `offset`    | Page offset. Default `0`.                                     |
+
+A negative `limit` or `offset` (or a non-numeric one) is rejected with `400`, not silently
+clamped to `0` - a malformed value here is almost always a client-side bug worth surfacing, not
+something to paper over. `limit` above `500` is not rejected, just capped.
 
 ```json
 {
@@ -155,11 +172,26 @@ Create or update the cost for one SKU. Always writes a history row.
 { "sku": "ABC-123", "unit_cost_net": 10.5, "currency": "PLN", "note": "spring restock" }
 
 // Response
-{ "cost_price": { "id": "cprc_...", "sku": "ABC-123", "unit_cost_net": 10.5, "..." : "..." } }
+{
+  "cost_price": { "id": "cprc_...", "sku": "ABC-123", "unit_cost_net": 10.5, "..." : "..." },
+  "duplicate_variant_matches": 0
+}
 ```
 
 `source` is not normally sent by the admin UI - it defaults to `"manual"`. The CSV importer sets
 it to `"csv"`; a future API-key integration would set it to `"api"`.
+
+Validation: `sku` is required (whitespace-only is rejected the same as empty). `unit_cost_net`
+must be a positive number no greater than `1,000,000` - a sane ceiling against a fat-fingered or
+malformed value, not a real business limit. `currency`, if given, is uppercased and must match a
+3-letter ISO-4217 shape (`^[A-Z]{3}$`, e.g. `"PLN"`) - a value that doesn't fit that shape is
+rejected with `400` rather than stored as-is.
+
+`duplicate_variant_matches` is `0` in the normal case. It is greater than `0` when this SKU
+currently matches more than one product variant - which SKUs are supposed to prevent, but nothing
+in Medusa enforces uniqueness at the database level. The variant with the lowest `id` wins
+deterministically either way; this field just tells you an anomaly was resolved instead of hiding
+it. Investigate and de-duplicate the variants sharing that SKU if you see this be non-zero.
 
 ### `POST /admin/product-costs/import`
 
@@ -170,12 +202,17 @@ Bulk-import a `sku,cost` CSV (see format below).
 { "csv": "sku,cost\nABC-123,10.50\nDEF-456,20,00\n" }
 
 // Response
-{ "created": 1, "updated": 1, "skipped": 0, "errors": [] }
+{ "created": 1, "updated": 1, "skipped": 0, "errors": [], "duplicateSkus": {} }
 ```
+
+`duplicateSkus` maps a SKU to how many _extra_ product variants it matched, for every SKU in this
+import where that happened (empty in the normal case) - see the `duplicate_variant_matches` note
+above; the same determinism and the same "investigate it" advice apply here per-SKU.
 
 ### `GET /admin/product-costs/:sku/history`
 
-The append-only change history for one SKU, newest first.
+The append-only change history for one SKU, newest first. `limit`/`offset` follow the same rules
+as the list route above (default `50`/`0`, capped at `500`, negative values rejected).
 
 ```json
 {
@@ -201,19 +238,48 @@ The append-only change history for one SKU, newest first.
 The resolved plugin options (`vatRate`, `defaultCurrency`), so the admin UI can compute a gross
 cost preview that matches how this store is actually configured.
 
+### `POST /admin/product-costs/resync-links`
+
+Re-resolves the `CostPrice.variant_id` cache (and the module link) for **every** curated cost, not
+just the SKUs touched by a recent save or import. Also available as the "Resync links" button on
+the "Product costs" admin page. See "How the variant link stays in sync" below for when you need
+this and what it does not fix.
+
+```json
+// Response
+{ "changed": 3, "skusChecked": 128, "duplicateSkus": { "ABC-123": 1 } }
+```
+
 ## CSV format
 
 Two columns, `sku,cost`. A header row is optional - a row whose first column is literally `sku`
 (any case) is skipped without being treated as data or as an error.
 
-- **Delimiter**: `,` or `;`, auto-detected from the first non-blank line (whichever separator is
-  strictly more frequent there; a tie falls back to comma).
+- **Delimiter**: `,` or `;`, auto-detected from the first non-blank line - whichever separator is
+  strictly more frequent there wins outright. On a tie where that line contains _both_ delimiters,
+  the tie is broken by which reading actually looks like a valid `sku,cost` row: exactly 2 fields,
+  with the second being a clean money value (no stray semicolon left over from splitting in the
+  wrong place). If _neither_ reading is a clean-enough win over the other, the import is rejected
+  with a single error naming the ambiguous line, rather than guessing - add an explicit header row
+  (e.g. `sku;cost`) to disambiguate, since a header line by itself never ties against a second
+  reading. A tie on a line with **no** delimiter at all (nothing to disambiguate) still falls back
+  to comma.
 - **Quoting**: a field can be wrapped in `"..."` to contain the delimiter; `""` inside a quoted
   field is an escaped literal `"`.
 - **Decimal commas**: `10,50` and `10.50` are both read as `10.5`. Thousands grouping is
   tolerated too (`1 234,56`, `1.234,56`, `1,234.56`).
+  - **A lone comma is always read as a decimal point (PL/EU convention), never as a US-style
+    thousands separator**: `"1,234"` parses as `1.234`, not `1234`. A file with US-formatted
+    numbers like `"1,234.56"` (comma _and_ dot present) is still read correctly as `1234.56`, since
+    the dot disambiguates which separator is the decimal point - it is a file using **only**
+    commas as thousands separators, with no field ever showing a decimal point, that will
+    misparse. There is no way to distinguish that shape from PL/EU decimal-comma input from the
+    number alone, so don't feed this importer a US-locale export that only ever uses whole-number,
+    comma-grouped costs.
 - **Currency suffixes** are stripped (`64,35 zl` -> `64.35`).
 - **Zero and negative costs are rejected** as invalid - a cost is always a positive number.
+- **Costs are canonicalized to 2 decimal places** on write (half-up, e.g. `10.999` is stored as
+  `11.00`), matching every other money value in this plugin.
 - **Duplicate SKUs within one file**: the _last_ occurrence wins (as if you had re-saved a
   spreadsheet with a corrected row further down); every earlier occurrence of that SKU counts
   toward `skipped`, not `updated`.
@@ -241,8 +307,26 @@ module link is orchestration work, not something the `productCosts` module does 
 - The CSV importer does not resolve links per row (that would be a query per line for a
   potentially large file) - it persists costs first, then runs one batched variant lookup and one
   batched link update for every SKU the import touched.
+- The module link (`src/links/cost-price-product-variant.ts`) is declared with
+  `deleteCascade: true` on the product-variant side, so the link row itself is removed when the
+  underlying variant is deleted - it never points at a variant that no longer exists.
 - Re-run the sync at any time (e.g. after deleting and recreating a variant) by importing the
-  `syncCostPriceVariantLinksWorkflow` workflow and running it with the affected SKUs.
+  `syncCostPriceVariantLinksWorkflow` workflow and running it with the affected SKUs, or by calling
+  `POST /admin/product-costs/resync-links` (also exposed as the "Resync links" button on the
+  "Product costs" admin page), which does this for every curated cost in the store.
+
+**What resyncing does not fix**: `CostPrice.sku` is the durable key this plugin matches on. If a
+variant's SKU is _renamed_ in the Product module (as opposed to the variant being deleted and
+recreated), `CostPrice.variant_id` still points at that same variant - the row is not stale, it is
+just indexed by the SKU's old value. Nothing observes a SKU rename automatically; the row catches
+up the next time that SKU is saved, imported, or included in a resync. If you rename SKUs in bulk
+outside this plugin, run a resync (or a fresh CSV import covering the renamed SKUs) afterward.
+
+Whenever more than one product variant carries the same SKU - which shouldn't happen, but nothing
+in Medusa enforces it at the database level - every resolution point (the single-row API, the CSV
+import's batched lookup, and the resync endpoint) picks the variant with the lowest `id`, the same
+one every time, and reports the anomaly back (`duplicate_variant_matches` / `duplicateSkus`; see
+the Admin API section above) instead of silently picking one.
 
 ## Development
 
@@ -268,6 +352,22 @@ auto-generated CRUD methods (`listCostPrices`, `createCostPrices`, etc. - the on
 live database and a fully wired Medusa container) with mocks, so the hand-written business logic
 (history-on-update, CSV dedup, variant-link diffing, margin resolution) runs for real against a
 controlled fake persistence layer. There is no database in CI.
+
+**Known gap: no live-Postgres round-trip test for `unit_cost_net`.** Both `CostPrice` and
+`CostPriceHistory` declare `unit_cost_net` as `model.bigNumber()`, which does not necessarily
+round-trip through MikroORM as a plain JS `number`. Every service method that returns a DTO
+(`upsertCost`, `getCostsBySkus`, `listCosts`, `getHistory`) normalizes it with `Number(...)`
+before it reaches an API response, and the unit tests pin that normalization against a
+BigNumber-shaped stand-in (a numeric string, the easiest fake to construct without a database).
+What those tests cannot prove is what MikroORM's real bigNumber column actually hands back for a
+value like `10.10` after a genuine write-then-read against Postgres. A real integration test for
+that (`@medusajs/test-utils`'s `moduleIntegrationTestRunner`, pointed at a throwaway Postgres -
+Docker locally makes that easy to spin up, same pattern as `plugin:db:generate` above) was
+assessed and intentionally not added in this pass: that runner is built around Jest's test
+globals, this project's test runner is Vitest, and CI has no database service configured, so a
+DB-backed test would not run there and would make the local `pnpm test` gate depend on Docker
+being available. If this module ever moves to Jest, or CI grows a Postgres service, this is the
+test to add.
 
 ## Roadmap
 
