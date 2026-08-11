@@ -25,7 +25,7 @@ export interface UpsertCostPriceWorkflowInput {
 export const upsertCostPriceWorkflow = createWorkflow(
   "upsert-cost-price",
   (input: UpsertCostPriceWorkflowInput) => {
-    const variantId = resolveVariantIdBySkuStep({ sku: input.sku });
+    const resolvedVariant = resolveVariantIdBySkuStep({ sku: input.sku });
 
     const upsertResult = upsertCostPriceStep({
       changedBy: input.changedBy,
@@ -34,18 +34,25 @@ export const upsertCostPriceWorkflow = createWorkflow(
       sku: input.sku,
       source: input.source,
       unitCostNet: input.unitCostNet,
-      variantId,
+      variantId: resolvedVariant.variantId,
     });
 
     const linkChange = buildLinkChangeStep({
       costPriceId: upsertResult.costPrice.id,
-      nextVariantId: variantId,
+      nextVariantId: resolvedVariant.variantId,
       previousVariantId: upsertResult.previousVariantId,
     });
 
     dismissRemoteLinkStep(linkChange.toDismiss);
     createRemoteLinkStep(linkChange.toCreate);
 
-    return new WorkflowResponse(upsertResult.costPrice);
+    return new WorkflowResponse({
+      costPrice: upsertResult.costPrice,
+      // Surfaces the resolve-step's determinism note (see
+      // `resolveVariantIdBySkuStep`) all the way to the API response, so an
+      // operator can see that a SKU unexpectedly matched more than one
+      // variant, instead of that anomaly being silently absorbed.
+      duplicateVariantMatches: resolvedVariant.duplicateMatches,
+    });
   },
 );

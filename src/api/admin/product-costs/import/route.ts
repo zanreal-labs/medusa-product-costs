@@ -34,14 +34,21 @@ export async function POST(
     source: "csv",
   });
 
+  let duplicateSkus: Record<string, number> = {};
   if (result.skus.length > 0) {
-    await syncCostPriceVariantLinksWorkflow(req.scope).run({
+    const sync = await syncCostPriceVariantLinksWorkflow(req.scope).run({
       input: { skus: result.skus },
     });
+    ({ duplicateSkus } = sync.result);
   }
 
   res.json({
     created: result.created,
+    // Non-empty when a SKU touched by this import currently matches more
+    // than one product variant (see resolveVariantIdsBulkStep) - the lowest
+    // variant id won deterministically, but it is worth an operator's
+    // attention.
+    duplicateSkus,
     errors: result.errors,
     skipped: result.skipped,
     updated: result.updated,

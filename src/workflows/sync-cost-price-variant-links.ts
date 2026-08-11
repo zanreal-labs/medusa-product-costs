@@ -19,11 +19,11 @@ export interface SyncCostPriceVariantLinksWorkflowInput {
 export const syncCostPriceVariantLinksWorkflow = createWorkflow(
   "sync-cost-price-variant-links",
   (input: SyncCostPriceVariantLinksWorkflowInput) => {
-    const variantIdBySku = resolveVariantIdsBulkStep({ skus: input.skus });
+    const resolved = resolveVariantIdsBulkStep({ skus: input.skus });
 
     const changes = applyVariantLinksStep({
       skus: input.skus,
-      variantIdBySku,
+      variantIdBySku: resolved.bySku,
     });
 
     const linkChange = buildBulkLinkChangeStep(changes);
@@ -31,6 +31,14 @@ export const syncCostPriceVariantLinksWorkflow = createWorkflow(
     dismissRemoteLinkStep(linkChange.toDismiss);
     createRemoteLinkStep(linkChange.toCreate);
 
-    return new WorkflowResponse(changes);
+    return new WorkflowResponse({
+      changes,
+      // Surfaces the resolve-step's determinism note (see
+      // `resolveVariantIdsBulkStep`) to every caller of this workflow - the
+      // CSV import route and the admin "Resync links" action - so a SKU
+      // that unexpectedly matched more than one variant is visible instead
+      // of silently absorbed.
+      duplicateSkus: resolved.duplicates,
+    });
   },
 );
