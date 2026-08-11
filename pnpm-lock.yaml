@@ -11,6 +11,9 @@ importers:
       '@medusajs/admin-sdk':
         specifier: 2.18.0
         version: 2.18.0
+      '@medusajs/admin-shared':
+        specifier: 2.18.0
+        version: 2.18.0
       '@medusajs/cli':
         specifier: 2.18.0
         version: 2.18.0(@types/node@20.19.43)
@@ -23,6 +26,9 @@ importers:
       '@medusajs/icons':
         specifier: 2.18.0
         version: 2.18.0(react@18.3.1)
+      '@medusajs/js-sdk':
+        specifier: 2.18.0
+        version: 2.18.0
       '@medusajs/medusa':
         specifier: 2.18.0
         version: 2.18.0(@medusajs/admin-sdk@2.18.0)(@medusajs/cli@2.18.0(@types/node@20.19.43))(@medusajs/dashboard@2.18.0(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(typescript@5.9.3))(@medusajs/framework@2.18.0(@medusajs/cli@2.18.0(@types/node@20.19.43))(@types/node@20.19.43)(ioredis@5.11.1)(vite@5.4.21(@types/node@20.19.43))(zod@4.2.0))(@medusajs/icons@2.18.0(react@18.3.1))(@medusajs/test-utils@2.18.0)(@medusajs/ui@4.2.0(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3))(@swc/core@1.15.47(@swc/helpers@0.5.23))(@types/node@20.19.43)(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(awilix@8.0.1)(picomatch@4.0.5)(posthog-node@5.48.1(rxjs@7.8.2))(react-dom@18.3.1(react@18.3.1))(react-router-dom@6.30.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)(typescript@5.9.3)(yalc@1.0.0-pre.53)(yaml@2.9.0)

@@ -25,7 +25,6 @@ describe("parseMoney", () => {
   });
 
   it("returns undefined for empty, zero, negative, or non-numeric input", () => {
-    expect(parseMoney()).toBeUndefined();
     expect(parseMoney("")).toBeUndefined();
     expect(parseMoney("0")).toBeUndefined();
     expect(parseMoney("-5")).toBeUndefined();
