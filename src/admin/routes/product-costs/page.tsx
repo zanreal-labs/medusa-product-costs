@@ -48,6 +48,13 @@ interface ImportCsvResponse {
   updated: number;
   skipped: number;
   errors: ImportCsvErrorDTO[];
+  duplicateSkus: Record<string, number>;
+}
+
+interface ResyncLinksResponse {
+  changed: number;
+  skusChecked: number;
+  duplicateSkus: Record<string, number>;
 }
 
 const CSV_PLACEHOLDER =
@@ -71,6 +78,8 @@ const ProductCostsPage = () => {
   const [csvText, setCsvText] = useState("");
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<ImportCsvResponse | null>(null);
+
+  const [resyncing, setResyncing] = useState(false);
 
   const loadCosts = async (search: string) => {
     setLoading(true);
@@ -114,6 +123,26 @@ const ProductCostsPage = () => {
     setCsvText(await file.text());
   };
 
+  const runResyncLinks = async () => {
+    setResyncing(true);
+    try {
+      const res = await sdk.client.fetch<ResyncLinksResponse>("/admin/product-costs/resync-links", {
+        method: "POST",
+      });
+      const duplicateCount = Object.keys(res.duplicateSkus).length;
+      toast.success(
+        duplicateCount > 0
+          ? `Resynced ${res.skusChecked} SKUs, ${res.changed} link(s) updated - ${duplicateCount} SKU(s) matched more than one variant`
+          : `Resynced ${res.skusChecked} SKUs, ${res.changed} link(s) updated`,
+      );
+      await loadCosts(q);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Resync failed");
+    } finally {
+      setResyncing(false);
+    }
+  };
+
   const runImport = async () => {
     if (!csvText.trim()) {
       toast.error("Paste or upload a CSV file first.");
@@ -127,8 +156,10 @@ const ProductCostsPage = () => {
         method: "POST",
       });
       setImportResult(res);
+      const duplicateCount = Object.keys(res.duplicateSkus).length;
       toast.success(
-        `Imported: ${res.created} created, ${res.updated} updated, ${res.skipped} skipped, ${res.errors.length} errors`,
+        `Imported: ${res.created} created, ${res.updated} updated, ${res.skipped} skipped, ${res.errors.length} errors${ 
+          duplicateCount > 0 ? ` - ${duplicateCount} SKU(s) matched more than one variant` : ""}`,
       );
       setCsvText("");
       await loadCosts(q);
@@ -143,9 +174,14 @@ const ProductCostsPage = () => {
     <Container className="divide-y p-0">
       <div className="flex items-center justify-between px-6 py-4">
         <Heading level="h1">Product costs</Heading>
-        <Text className="text-ui-fg-subtle" size="small">
-          {count} SKUs
-        </Text>
+        <div className="flex items-center gap-4">
+          <Text className="text-ui-fg-subtle" size="small">
+            {count} SKUs
+          </Text>
+          <Button isLoading={resyncing} onClick={runResyncLinks} size="small" variant="secondary">
+            Resync links
+          </Button>
+        </div>
       </div>
 
       <div className="px-6 py-4">
