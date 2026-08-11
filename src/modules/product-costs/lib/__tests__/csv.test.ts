@@ -49,15 +49,43 @@ describe("parseCostCsv", () => {
   });
 
   it("detects a semicolon delimiter from an unambiguous header row", () => {
-    // The delimiter is sniffed from the first line only. A bare data row like
-    // "SKU-1;10,50" has one semicolon AND one decimal comma, which ties and
-    // falls back to comma (matching the ported production behavior) - an
-    // explicit header line disambiguates it.
+    // The delimiter is sniffed from the first line only. A bare data row
+    // like "SKU-1;10,50" has one semicolon AND one decimal comma, which
+    // ties and is genuinely ambiguous on its own (see the dedicated
+    // ambiguous-tie test below) - an explicit header line disambiguates it,
+    // since "sku;price" ties too but has no second reading to compete with.
     const { rows } = parseCostCsv("sku;price\nSKU-1;10,50\nSKU-2;20,00");
     expect(rows).toEqual([
       { lineNumber: 2, sku: "SKU-1", unitCostNet: 10.5 },
       { lineNumber: 3, sku: "SKU-2", unitCostNet: 20 },
     ]);
+  });
+
+  it("resolves a comma/semicolon tie in favor of whichever delimiter yields a clean money field", () => {
+    // Exactly one comma and one semicolon - a tie by count. Splitting on
+    // comma leaves "A;10.50" as the cost field, which still contains the
+    // other delimiter (a dead giveaway the split landed in the wrong
+    // place); splitting on semicolon leaves the clean "10.50". Before this
+    // was hardened, a tie fell back to comma unconditionally, which would
+    // have silently produced sku="SKU" (dropping ",A") with a
+    // coincidentally-valid-looking cost of 10.50.
+    const { rows, errors } = parseCostCsv("SKU,A;10.50");
+    expect(errors).toEqual([]);
+    expect(rows).toEqual([{ lineNumber: 1, sku: "SKU,A", unitCostNet: 10.5 }]);
+  });
+
+  it("reports an unresolvable comma/semicolon tie instead of silently guessing", () => {
+    // Exactly one comma (the decimal point) and one semicolon (the intended
+    // field delimiter) - both readings produce an equally plausible-looking
+    // cost ("50" via comma-split, "10,50" via semicolon-split), so there is
+    // no safe way to pick one. This must be reported, not silently resolved
+    // - previously this fell back to comma unconditionally, silently
+    // producing sku="SKU-1;10" and cost=50, both wrong.
+    const { rows, errors } = parseCostCsv("SKU-1;10,50");
+    expect(rows).toEqual([]);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.lineNumber).toBe(1);
+    expect(errors[0]?.reason).toMatch(/cannot determine the delimiter/i);
   });
 
   it("honors quoted fields containing the delimiter", () => {

@@ -51,8 +51,37 @@ export function parseMoney(raw: string | undefined): number | undefined {
   return Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
-/** Pick the delimiter from a line by counting unquoted separators. */
-function detectDelimiter(line: string): string {
+/**
+ * A field is never a legitimate money value if it still contains a
+ * semicolon - no supported locale uses one in a number. Its presence in a
+ * would-be cost field is the tell that a delimiter guess split the line in
+ * the wrong place (the real delimiter leaked into what should have been a
+ * clean value).
+ */
+function looksLikeMoneyField(field: string | undefined): boolean {
+  if (field === undefined) {
+    return false;
+  }
+  const trimmed = field.trim();
+  if (trimmed.includes(";")) {
+    return false;
+  }
+  return parseMoney(trimmed) !== undefined;
+}
+
+/**
+ * Pick the delimiter from a line by counting unquoted separators. A strict
+ * majority (more of one than the other) wins outright. On a tie where the
+ * line contains both delimiters, the tie is broken by which reading
+ * actually produces a plausible `sku,cost` split: exactly 2 fields, with
+ * the second looking like a real money value (see `looksLikeMoneyField`).
+ * If neither reading is unambiguously better - or the tie is on a line with
+ * no delimiter at all - falls back to comma, matching the historical/ported
+ * behavior. If *both* readings look equally plausible, there is no safe way
+ * to guess, so `undefined` is returned and the caller reports the line
+ * instead of picking one silently.
+ */
+function detectDelimiter(line: string): "," | ";" | undefined {
   let semi = 0;
   let comma = 0;
   let inQuotes = false;
@@ -65,7 +94,33 @@ function detectDelimiter(line: string): string {
       comma += 1;
     }
   }
-  return semi > comma ? ";" : ",";
+  if (semi > comma) {
+    return ";";
+  }
+  if (comma > semi) {
+    return ",";
+  }
+  if (semi === 0) {
+    // No delimiter present at all - nothing to disambiguate.
+    return ",";
+  }
+
+  const commaLooksRight = (() => {
+    const fields = splitCsvLine(line, ",");
+    return fields.length === 2 && looksLikeMoneyField(fields[1]);
+  })();
+  const semiLooksRight = (() => {
+    const fields = splitCsvLine(line, ";");
+    return fields.length === 2 && looksLikeMoneyField(fields[1]);
+  })();
+
+  if (commaLooksRight && !semiLooksRight) {
+    return ",";
+  }
+  if (semiLooksRight && !commaLooksRight) {
+    return ";";
+  }
+  return undefined;
 }
 
 /** Split one CSV line into fields, honoring "quoted" fields with embedded delimiters. */
@@ -114,6 +169,21 @@ export function parseCostCsv(text: string): CsvParseResult {
     return { errors, rows };
   }
   const delimiter = detectDelimiter(firstNonBlank);
+  if (delimiter === undefined) {
+    // Genuinely ambiguous: the sniffed line has both a comma and a
+    // semicolon, and both readings look like a plausible `sku,cost` split -
+    // there is no safe delimiter to apply to the rest of the file, so this
+    // is reported instead of guessed. Adding an explicit header row (whose
+    // delimiter is unambiguous on its own) resolves this for the whole file.
+    errors.push({
+      lineNumber: rawLines.indexOf(firstNonBlank) + 1,
+      raw: firstNonBlank,
+      reason:
+        "Cannot determine the delimiter - the line contains both ',' and ';' and both readings " +
+        'look like a valid sku,cost row. Add a header row (e.g. "sku;cost") to disambiguate.',
+    });
+    return { errors, rows };
+  }
 
   for (let i = 0; i < rawLines.length; i += 1) {
     const raw = rawLines[i];
