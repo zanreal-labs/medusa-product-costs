@@ -246,6 +246,8 @@ module link is orchestration work, not something the `productCosts` module does 
 
 ## Development
 
+Requires Node.js >= 22.13 (pnpm 11, pinned via `packageManager` in `package.json`, needs it).
+
 ```bash
 pnpm install
 pnpm test            # vitest - formula, CSV parser, and service-logic unit tests
