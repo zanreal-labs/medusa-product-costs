@@ -1,4 +1,4 @@
-import { grossFromNet, round2 } from "./money";
+import { round2 } from "./money";
 
 /**
  * Inputs to the margin/break-even calculation. `vatRate` is always resolved
@@ -57,16 +57,31 @@ export function computeEconomics(input: EconomicsInput): EconomicsResult {
   const hasNetCost = netCost !== undefined && netCost !== null;
   const hasSellingPrice = sellingPrice !== undefined && sellingPrice !== null;
 
-  const grossCost = hasNetCost ? grossFromNet(netCost as number, vatRate) : undefined;
+  // Unrounded throughout. `grossCostUnrounded` feeds netIncome and
+  // breakEvenPrice directly - rounding it first and then dividing/subtracting
+  // with the rounded value would double-round and can land a cent off from
+  // the true figure (e.g. netCost=33.62, vatRate=0.23, commissionRate=0.1
+  // rounds breakEvenPrice to 45.94 instead of the correct 45.95 - a cent
+  // below the true break-even, the unsafe direction for a price floor).
+  // Every OUTPUT below rounds itself once, independently, from this same
+  // unrounded value - matching the production formula this was ported from
+  // (see the reference implementation's netIncome/breakEven expressions,
+  // which compute `supply * (1 + VAT)` inline and round the whole
+  // expression exactly once).
+  const grossCostUnrounded = hasNetCost ? (netCost as number) * (1 + vatRate) : undefined;
+
+  const grossCost = grossCostUnrounded !== undefined ? round2(grossCostUnrounded) : undefined;
 
   const netIncome =
-    hasSellingPrice && grossCost !== undefined
-      ? round2((sellingPrice as number) - (sellingPrice as number) * commissionRate - grossCost)
+    hasSellingPrice && grossCostUnrounded !== undefined
+      ? round2(
+          (sellingPrice as number) - (sellingPrice as number) * commissionRate - grossCostUnrounded,
+        )
       : undefined;
 
   const breakEvenPrice =
-    grossCost !== undefined && commissionRate < 1
-      ? round2(grossCost / (1 - commissionRate))
+    grossCostUnrounded !== undefined && commissionRate < 1
+      ? round2(grossCostUnrounded / (1 - commissionRate))
       : undefined;
 
   const marginPct =
