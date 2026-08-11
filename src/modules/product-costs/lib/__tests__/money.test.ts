@@ -39,4 +39,12 @@ describe("grossFromNet", () => {
   it("returns the net amount unchanged at a zero VAT rate", () => {
     expect(grossFromNet(50, 0)).toBe(50);
   });
+
+  it("diverges from a naive `(net * (1 + rate)).toFixed(2)` at an exact half-cent - this is why the admin widget's gross-cost preview must call grossFromNet directly, not reimplement the formula", () => {
+    const net = 0.5;
+    const rate = 0.23;
+    const naive = (net * (1 + rate)).toFixed(2);
+    expect(naive).toBe("0.61");
+    expect(grossFromNet(net, rate).toFixed(2)).toBe("0.62");
+  });
 });

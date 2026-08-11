@@ -2,6 +2,7 @@ import { defineWidgetConfig } from "@medusajs/admin-sdk";
 import type { AdminProduct, DetailWidgetProps } from "@medusajs/framework/types";
 import { Button, Container, Heading, Input, Table, Text, toast } from "@medusajs/ui";
 import { useEffect, useMemo, useState } from "react";
+import { grossFromNet } from "../../modules/product-costs/lib/money";
 import { sdk } from "../lib/sdk";
 
 interface ConfigResponse {
@@ -149,7 +150,12 @@ const ProductCostWidget = ({ data }: DetailWidgetProps<AdminProduct>) => {
     if (!config || unitCostNet === undefined) {
       return null;
     }
-    return (unitCostNet * (1 + config.vatRate)).toFixed(2);
+    // Use the same `grossFromNet` (half-up round2) the server uses, not a
+    // plain `.toFixed(2)` - the two diverge at exact half-cent inputs (e.g.
+    // 0.50 net at 23% VAT: `.toFixed(2)` gives 0.61, grossFromNet gives the
+    // correct 0.62), which would make this preview lie about what gets
+    // saved.
+    return grossFromNet(unitCostNet, config.vatRate).toFixed(2);
   };
 
   if (variants.length === 0) {
