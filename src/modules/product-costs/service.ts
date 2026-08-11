@@ -1,7 +1,15 @@
-import { MedusaError, MedusaService } from "@medusajs/framework/utils";
+import type { Context } from "@medusajs/framework/types";
+import {
+  InjectManager,
+  InjectTransactionManager,
+  MedusaContext,
+  MedusaError,
+  MedusaService,
+} from "@medusajs/framework/utils";
 import { parseCostCsv } from "./lib/csv";
 import { computeEconomics as computeEconomicsPure } from "./lib/economics";
 import type { EconomicsResult } from "./lib/economics";
+import { round2 } from "./lib/money";
 import CostPriceHistory from "./models/cost-price-history";
 import CostPrice from "./models/cost-price";
 import type {
@@ -34,6 +42,26 @@ export interface VariantLinkChange {
   nextVariantId: string | null;
 }
 
+const APPEND_ONLY_MESSAGE =
+  "CostPriceHistory rows are append-only - create a new row with createCostPriceHistories " +
+  "instead of modifying or removing an existing one.";
+
+/**
+ * `CostPrice.unit_cost_net` and `CostPriceHistory.unit_cost_net` are declared
+ * with `model.bigNumber()`, which does not round-trip through the ORM as a
+ * plain JS `number` - normalize it at every service boundary that returns a
+ * DTO, so every consumer (the admin UI, `res.json` in the API routes, other
+ * modules reading through this service) gets a real number, not a BigNumber
+ * wrapper or a string.
+ */
+function toCostPriceDTO(row: CostPriceDTO): CostPriceDTO {
+  return { ...row, unit_cost_net: Number(row.unit_cost_net) };
+}
+
+function toCostPriceHistoryDTO(row: CostPriceHistoryDTO): CostPriceHistoryDTO {
+  return { ...row, unit_cost_net: Number(row.unit_cost_net) };
+}
+
 /**
  * Module service for the product-costs module. Deliberately has no
  * knowledge of the Product module or any other Medusa module - resolving a
@@ -60,11 +88,36 @@ class ProductCostsModuleService extends MedusaService({
    * Create or update the cost for a SKU. Always writes a `CostPriceHistory`
    * row, on both branches - there is no "no-op" fast path, per the
    * requirement that every create/update is recorded.
+   *
+   * Public entry point, decorated with `@InjectManager()` per the standard
+   * Medusa module-service pattern: it resolves a manager for the shared
+   * context and delegates to `upsertCost_`, which does the actual work
+   * inside a database transaction.
    */
+  @InjectManager()
   async upsertCost(
     sku: string,
     unitCostNet: number,
     input: UpsertCostInput,
+    @MedusaContext() sharedContext: Context = {},
+  ): Promise<UpsertCostResult> {
+    return await this.upsertCost_(sku, unitCostNet, input, sharedContext);
+  }
+
+  /**
+   * The `CostPrice` write and the `CostPriceHistory` write happen inside one
+   * database transaction (`@InjectTransactionManager` opens it, and every
+   * write below shares it through `sharedContext`): if the process crashes
+   * or the history write fails after the cost write succeeds, the whole
+   * transaction rolls back, so a cost is never persisted without its
+   * matching history row.
+   */
+  @InjectTransactionManager()
+  protected async upsertCost_(
+    sku: string,
+    unitCostNet: number,
+    input: UpsertCostInput,
+    @MedusaContext() sharedContext: Context = {},
   ): Promise<UpsertCostResult> {
     const trimmedSku = sku.trim();
     if (!trimmedSku) {
@@ -76,9 +129,16 @@ class ProductCostsModuleService extends MedusaService({
         `upsertCost requires a positive unitCostNet, received "${unitCostNet}"`,
       );
     }
+    // Canonicalize to 2 decimal places at the write boundary. This is the
+    // one place every cost this module persists passes through - a direct
+    // API/widget call and every row of a CSV import alike (`importCsv`
+    // calls this method per row) - so rounding here is enough to guarantee
+    // every stored `unit_cost_net` has exactly 2 decimal places, matching
+    // the money convention used everywhere else in this module.
+    const canonicalUnitCostNet = round2(unitCostNet);
 
     const currency = input.currency ?? this.moduleOptions_.defaultCurrency;
-    const [existing] = await this.listCostPrices({ sku: [trimmedSku] });
+    const [existing] = await this.listCostPrices({ sku: [trimmedSku] }, {}, sharedContext);
     const previousVariantId = (existing?.variant_id as string | null | undefined) ?? null;
 
     const variantIdPatch = "variantId" in input ? { variant_id: input.variantId ?? null } : {};
@@ -87,35 +147,48 @@ class ProductCostsModuleService extends MedusaService({
     let created: boolean;
 
     if (existing) {
-      costPrice = (await this.updateCostPrices({
-        currency,
-        id: existing.id as string,
-        note: input.note ?? null,
-        source: input.source,
-        unit_cost_net: unitCostNet,
-        ...variantIdPatch,
-      })) as unknown as CostPriceDTO;
+      costPrice = toCostPriceDTO(
+        (await this.updateCostPrices(
+          {
+            currency,
+            id: existing.id as string,
+            note: input.note ?? null,
+            source: input.source,
+            unit_cost_net: canonicalUnitCostNet,
+            ...variantIdPatch,
+          },
+          sharedContext,
+        )) as unknown as CostPriceDTO,
+      );
       created = false;
     } else {
-      costPrice = (await this.createCostPrices({
-        currency,
-        note: input.note ?? null,
-        sku: trimmedSku,
-        source: input.source,
-        unit_cost_net: unitCostNet,
-        variant_id: "variantId" in input ? (input.variantId ?? null) : null,
-      })) as unknown as CostPriceDTO;
+      costPrice = toCostPriceDTO(
+        (await this.createCostPrices(
+          {
+            currency,
+            note: input.note ?? null,
+            sku: trimmedSku,
+            source: input.source,
+            unit_cost_net: canonicalUnitCostNet,
+            variant_id: "variantId" in input ? (input.variantId ?? null) : null,
+          },
+          sharedContext,
+        )) as unknown as CostPriceDTO,
+      );
       created = true;
     }
 
-    await this.createCostPriceHistories({
-      changed_at: new Date(),
-      changed_by: input.changedBy ?? null,
-      currency,
-      sku: trimmedSku,
-      source: input.source,
-      unit_cost_net: unitCostNet,
-    });
+    await this.createCostPriceHistories(
+      {
+        changed_at: new Date(),
+        changed_by: input.changedBy ?? null,
+        currency,
+        sku: trimmedSku,
+        source: input.source,
+        unit_cost_net: canonicalUnitCostNet,
+      },
+      sharedContext,
+    );
 
     return { costPrice, created, previousVariantId };
   }
@@ -125,7 +198,8 @@ class ProductCostsModuleService extends MedusaService({
     if (trimmed.length === 0) {
       return [];
     }
-    return (await this.listCostPrices({ sku: trimmed })) as unknown as CostPriceDTO[];
+    const rows = (await this.listCostPrices({ sku: trimmed })) as unknown as CostPriceDTO[];
+    return rows.map(toCostPriceDTO);
   }
 
   async getCostBySku(sku: string): Promise<CostPriceDTO | undefined> {
@@ -152,7 +226,7 @@ class ProductCostsModuleService extends MedusaService({
       take: limit,
     });
 
-    return { costs: costs as unknown as CostPriceDTO[], count };
+    return { costs: (costs as unknown as CostPriceDTO[]).map(toCostPriceDTO), count };
   }
 
   async getHistory(
@@ -164,7 +238,10 @@ class ProductCostsModuleService extends MedusaService({
       { sku: sku.trim() },
       { order: { changed_at: "DESC" }, skip: offset, take: limit },
     );
-    return { count, history: history as unknown as CostPriceHistoryDTO[] };
+    return {
+      count,
+      history: (history as unknown as CostPriceHistoryDTO[]).map(toCostPriceHistoryDTO),
+    };
   }
 
   /**
@@ -283,6 +360,38 @@ class ProductCostsModuleService extends MedusaService({
 
     return changes;
   }
+
+  /**
+   * `CostPriceHistory` is documented (see the model) as an append-only audit
+   * trail, but `MedusaService(...)` auto-generates update/delete/soft-delete/
+   * restore mutators for every model it is given, including this one -
+   * nothing about the model definition itself makes it read-only. These
+   * overrides are what actually enforces the append-only contract: calling
+   * any of them throws instead of silently letting the audit trail be
+   * rewritten or thinned out. `createCostPriceHistories` and every read
+   * method (`retrieveCostPriceHistory`, `listCostPriceHistories`,
+   * `listAndCountCostPriceHistories`) are untouched and still work normally.
+   */
+  // Declared as arrow-function properties, not methods: `MedusaService(...)`
+  // types these members as call-signature-only properties on the base
+  // class, and TypeScript requires a subclass to override a property with a
+  // property (TS2425) - a `methodName() {}` override here would be a
+  // property/method mismatch even though it works fine at runtime.
+  updateCostPriceHistories = async (..._args: unknown[]): Promise<never> => {
+    throw new MedusaError(MedusaError.Types.NOT_ALLOWED, APPEND_ONLY_MESSAGE);
+  };
+
+  deleteCostPriceHistories = async (..._args: unknown[]): Promise<never> => {
+    throw new MedusaError(MedusaError.Types.NOT_ALLOWED, APPEND_ONLY_MESSAGE);
+  };
+
+  softDeleteCostPriceHistories = async (..._args: unknown[]): Promise<never> => {
+    throw new MedusaError(MedusaError.Types.NOT_ALLOWED, APPEND_ONLY_MESSAGE);
+  };
+
+  restoreCostPriceHistories = async (..._args: unknown[]): Promise<never> => {
+    throw new MedusaError(MedusaError.Types.NOT_ALLOWED, APPEND_ONLY_MESSAGE);
+  };
 }
 
 export default ProductCostsModuleService;

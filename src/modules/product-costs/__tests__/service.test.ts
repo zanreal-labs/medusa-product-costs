@@ -13,7 +13,20 @@ import ProductCostsModuleService from "../service";
  * bare `{}` container is safe) and replace those specific auto-generated
  * methods with mocks, so the hand-written methods below run for real
  * against a controlled fake persistence layer.
+ *
+ * `baseRepository_` is stubbed with `transaction` and `getFreshManager` too:
+ * the public `upsertCost` is decorated with `@InjectManager` (which calls
+ * `getFreshManager`), and delegates to the protected `upsertCost_`, decorated
+ * with `@InjectTransactionManager` (which calls `transaction(...)` to open
+ * the real DB transaction in production). The stubs here just invoke the
+ * work function with a fake manager object (`fakeTransactionManager`) so
+ * the decorators' plumbing runs for real, without an actual database - tests
+ * can then assert that every write inside `upsertCost` received the *same*
+ * manager via its `sharedContext`, which is what guarantees they'd all be
+ * part of one database transaction for real.
  */
+const fakeTransactionManager = { __fake: "transaction-manager" };
+
 function createService(options?: ConstructorParameters<typeof ProductCostsModuleService>[1]) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const service = new (ProductCostsModuleService as any)(
@@ -26,6 +39,8 @@ function createService(options?: ConstructorParameters<typeof ProductCostsModule
     createCostPriceHistories: ReturnType<typeof vi.fn>;
     listAndCountCostPrices: ReturnType<typeof vi.fn>;
     listAndCountCostPriceHistories: ReturnType<typeof vi.fn>;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    baseRepository_: any;
   };
 
   service.listCostPrices = vi.fn().mockResolvedValue([]);
@@ -34,6 +49,12 @@ function createService(options?: ConstructorParameters<typeof ProductCostsModule
   service.createCostPriceHistories = vi.fn().mockResolvedValue({});
   service.listAndCountCostPrices = vi.fn().mockResolvedValue([[], 0]);
   service.listAndCountCostPriceHistories = vi.fn().mockResolvedValue([[], 0]);
+  service.baseRepository_ = {
+    getFreshManager: vi.fn(() => ({ __fake: "fresh-manager" })),
+    transaction: vi.fn(
+      async (work: (manager: unknown) => Promise<unknown>) => await work(fakeTransactionManager),
+    ),
+  };
 
   return service;
 }
@@ -66,14 +87,17 @@ describe("ProductCostsModuleService.upsertCost", () => {
 
     const result = await service.upsertCost("SKU-1", 10, { source: "manual" });
 
-    expect(service.createCostPrices).toHaveBeenCalledWith({
-      currency: "PLN",
-      note: null,
-      sku: "SKU-1",
-      source: "manual",
-      unit_cost_net: 10,
-      variant_id: null,
-    });
+    expect(service.createCostPrices).toHaveBeenCalledWith(
+      {
+        currency: "PLN",
+        note: null,
+        sku: "SKU-1",
+        source: "manual",
+        unit_cost_net: 10,
+        variant_id: null,
+      },
+      expect.objectContaining({ transactionManager: fakeTransactionManager }),
+    );
     expect(service.updateCostPrices).not.toHaveBeenCalled();
     expect(service.createCostPriceHistories).toHaveBeenCalledTimes(1);
     expect(service.createCostPriceHistories).toHaveBeenCalledWith(
@@ -84,6 +108,7 @@ describe("ProductCostsModuleService.upsertCost", () => {
         source: "manual",
         unit_cost_net: 10,
       }),
+      expect.objectContaining({ transactionManager: fakeTransactionManager }),
     );
     expect(result.created).toBe(true);
     expect(result.previousVariantId).toBeNull();
@@ -178,6 +203,57 @@ describe("ProductCostsModuleService.upsertCost", () => {
       /unitCostNet/i,
     );
   });
+
+  it("canonicalizes unitCostNet to 2 decimal places at the write boundary", async () => {
+    const service = createService();
+    service.listCostPrices.mockResolvedValue([]);
+    service.createCostPrices.mockResolvedValue({});
+
+    await service.upsertCost("SKU-1", 10.999, { source: "manual" });
+
+    expect(service.createCostPrices).toHaveBeenCalledWith(
+      expect.objectContaining({ unit_cost_net: 11 }),
+      expect.anything(),
+    );
+    expect(service.createCostPriceHistories).toHaveBeenCalledWith(
+      expect.objectContaining({ unit_cost_net: 11 }),
+      expect.anything(),
+    );
+  });
+
+  it("runs the CostPrice write and the CostPriceHistory write inside the same database transaction", async () => {
+    const service = createService();
+    service.listCostPrices.mockResolvedValue([]);
+    service.createCostPrices.mockResolvedValue({});
+
+    await service.upsertCost("SKU-1", 10, { source: "manual" });
+
+    expect(service.baseRepository_.transaction).toHaveBeenCalledTimes(1);
+    const [, createContext] = service.createCostPrices.mock.calls[0] as [unknown, unknown];
+    const [, historyContext] = service.createCostPriceHistories.mock.calls[0] as [unknown, unknown];
+    expect(createContext).toMatchObject({ transactionManager: fakeTransactionManager });
+    expect(historyContext).toMatchObject({ transactionManager: fakeTransactionManager });
+  });
+
+  it("rolls back the CostPrice write when the CostPriceHistory write fails", async () => {
+    const service = createService();
+    service.listCostPrices.mockResolvedValue([]);
+    service.createCostPrices.mockResolvedValue({ id: "cprc_1", sku: "SKU-1" });
+    service.createCostPriceHistories.mockRejectedValue(new Error("history write failed"));
+
+    await expect(service.upsertCost("SKU-1", 10, { source: "manual" })).rejects.toThrow(
+      "history write failed",
+    );
+
+    // The failure propagates out of `baseRepository_.transaction`'s work
+    // function - in production that is exactly what makes Postgres roll
+    // back the whole transaction, so the CostPrice row created above is
+    // never actually committed. This stub cannot observe a real rollback
+    // (there is no database here), but it does prove the error is not
+    // swallowed - it reaches the caller, which is the precondition for the
+    // transaction wrapper to roll back.
+    expect(service.baseRepository_.transaction).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("ProductCostsModuleService.importCsv", () => {
@@ -211,6 +287,7 @@ describe("ProductCostsModuleService.importCsv", () => {
     expect(service.createCostPrices).toHaveBeenCalledTimes(1);
     expect(service.createCostPrices).toHaveBeenCalledWith(
       expect.objectContaining({ sku: "SKU-1", unit_cost_net: 20 }),
+      expect.anything(),
     );
   });
 
@@ -235,6 +312,16 @@ describe("ProductCostsModuleService.importCsv", () => {
 
     expect(result.created).toBe(1);
     expect(result.errors).toEqual([{ lineNumber: 2, raw: "SKU-BAD,20", reason: "db exploded" }]);
+  });
+
+  it("canonicalizes a row's cost to 2 decimal places, since importCsv writes through upsertCost", async () => {
+    const result = await service.importCsv("SKU-1,10.999");
+
+    expect(result.created).toBe(1);
+    expect(service.createCostPrices).toHaveBeenCalledWith(
+      expect.objectContaining({ unit_cost_net: 11 }),
+      expect.anything(),
+    );
   });
 });
 
@@ -305,5 +392,95 @@ describe("ProductCostsModuleService.computeEconomics", () => {
 
     expect(result.grossCost).toBeUndefined();
     expect(result.netIncome).toBeUndefined();
+  });
+});
+
+describe("ProductCostsModuleService CostPriceHistory append-only guard", () => {
+  // `CostPriceHistory` is documented as append-only, but `MedusaService(...)`
+  // auto-generates update/delete/soft-delete/restore mutators for every
+  // model it is given - including this one. These four overrides are what
+  // actually enforces the contract; without them, any caller with a
+  // reference to the service could rewrite or erase audit history.
+  it("throws NOT_ALLOWED from updateCostPriceHistories", async () => {
+    const service = createService();
+    await expect(
+      service.updateCostPriceHistories({ id: "cprch_1", unit_cost_net: 1 }),
+    ).rejects.toThrow(/append-only/i);
+  });
+
+  it("throws NOT_ALLOWED from deleteCostPriceHistories", async () => {
+    const service = createService();
+    await expect(service.deleteCostPriceHistories("cprch_1")).rejects.toThrow(/append-only/i);
+  });
+
+  it("throws NOT_ALLOWED from softDeleteCostPriceHistories", async () => {
+    const service = createService();
+    await expect(service.softDeleteCostPriceHistories("cprch_1")).rejects.toThrow(/append-only/i);
+  });
+
+  it("throws NOT_ALLOWED from restoreCostPriceHistories", async () => {
+    const service = createService();
+    await expect(service.restoreCostPriceHistories("cprch_1")).rejects.toThrow(/append-only/i);
+  });
+});
+
+describe("ProductCostsModuleService unit_cost_net normalization", () => {
+  // `unit_cost_net` is a `model.bigNumber()` field, which does not
+  // round-trip through the ORM as a plain JS `number` - the mocks below
+  // stand in for whatever shape the ORM actually returns (a numeric string
+  // is the easiest stand-in to assert against) at every boundary that flows
+  // into `res.json` in the API routes.
+  it("normalizes unit_cost_net to a number in getCostsBySkus", async () => {
+    const service = createService();
+    service.listCostPrices.mockResolvedValue([
+      { currency: "PLN", id: "cprc_1", sku: "SKU-1", unit_cost_net: "10.10" },
+    ]);
+
+    const [costPrice] = await service.getCostsBySkus(["SKU-1"]);
+
+    expect(costPrice?.unit_cost_net).toBe(10.1);
+    expect(typeof costPrice?.unit_cost_net).toBe("number");
+  });
+
+  it("normalizes unit_cost_net to a number in listCosts", async () => {
+    const service = createService();
+    service.listAndCountCostPrices.mockResolvedValue([
+      [{ currency: "PLN", id: "cprc_1", sku: "SKU-1", unit_cost_net: "10.10" }],
+      1,
+    ]);
+
+    const { costs } = await service.listCosts();
+
+    expect(costs[0]?.unit_cost_net).toBe(10.1);
+    expect(typeof costs[0]?.unit_cost_net).toBe("number");
+  });
+
+  it("normalizes unit_cost_net to a number in getHistory", async () => {
+    const service = createService();
+    service.listAndCountCostPriceHistories.mockResolvedValue([
+      [{ currency: "PLN", id: "cprch_1", sku: "SKU-1", unit_cost_net: "10.10" }],
+      1,
+    ]);
+
+    const { history } = await service.getHistory("SKU-1");
+
+    expect(history[0]?.unit_cost_net).toBe(10.1);
+    expect(typeof history[0]?.unit_cost_net).toBe("number");
+  });
+
+  it("normalizes unit_cost_net to a number in the upsertCost result", async () => {
+    const service = createService();
+    service.listCostPrices.mockResolvedValue([]);
+    service.createCostPrices.mockResolvedValue({
+      currency: "PLN",
+      id: "cprc_1",
+      sku: "SKU-1",
+      unit_cost_net: "10.10",
+    });
+
+    const result = await service.upsertCost("SKU-1", 10.1, { source: "manual" });
+
+    expect(result.costPrice.unit_cost_net).toBe(10.1);
+    expect(typeof result.costPrice.unit_cost_net).toBe("number");
   });
 });

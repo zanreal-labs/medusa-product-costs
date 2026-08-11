@@ -14,10 +14,13 @@ export interface UpsertCostPriceStepInput {
 }
 
 /**
- * Thin step wrapper around the module service's `upsertCost`. No
- * compensation function - reverting a cost change (and its already-written
- * history row) on a later workflow failure isn't attempted in this wave;
- * see the README roadmap.
+ * Thin step wrapper around the module service's `upsertCost`, which writes
+ * the `CostPrice` and its `CostPriceHistory` row atomically (same DB
+ * transaction - see the service). This step itself has no compensation
+ * function, though: if a *later* step in this workflow fails (e.g. the
+ * module-link write), that already-committed cost/history pair is not
+ * rolled back - reverting it on a downstream workflow failure isn't
+ * attempted in this wave; see the README roadmap.
  */
 export const upsertCostPriceStep = createStep(
   "upsert-cost-price",
