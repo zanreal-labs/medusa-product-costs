@@ -153,6 +153,15 @@ It does **not** allow injecting a custom **column** into the core products data 
 no "cost" column while browsing all products - the per-product widget and the cross-product list
 cover that need instead.
 
+**TODO (admin-kit):** `@zanreal/medusa-admin-kit` - a separate shared package, built independently
+of this plugin - is planned to ship an extensible products list that other plugins register
+columns into. Once that package exists, this plugin should register a "cost/margin" column with
+it instead of relying on the read-only cross-product list above for cross-catalog browsing. Do
+not build a competing products list in this plugin while that is pending; the standalone
+`routes/product-costs` list stays a secondary, browse-only surface until the admin-kit column
+lands, at which point it should be re-evaluated (kept as an audit view, or retired in favor of the
+admin-kit column).
+
 ## Admin API
 
 All routes are under `/admin/product-costs` and use Medusa's standard admin authentication (no
@@ -409,6 +418,10 @@ data exists for a meaningful share of a catalog.
 from this plugin as the floor for automated price changes - never let an automated rule reprice a
 SKU below the price at which it stops making money. That consumer does not exist yet; this plugin
 is built so it can.
+
+**Admin-kit column.** `@zanreal/medusa-admin-kit` will provide an extensible products list that
+plugins can register columns into. When it ships, register a "cost/margin" column there instead
+of expanding the read-only `routes/product-costs` list further - see the TODO in "Admin UI" above.
 
 **Other deferred items:**
 
