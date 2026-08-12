@@ -20,8 +20,9 @@ curating a net purchase cost per SKU and deriving the numbers a pricing decision
   up next to the product in the admin - without making the variant the source of truth. The SKU
   is the durable key; if a variant is deleted and recreated, the cost is not orphaned.
 
-It ships an admin widget on the product detail page (editable cost per variant, with a live gross
-cost preview) and a "Product costs" page for bulk CSV import, search, and per-SKU history.
+It ships an admin widget on the **product detail page** - the primary place a cost is set - plus a
+**Settings > Product costs** page for the plugin config and bulk CSV import, and a read-only
+cross-product cost list for browsing and audit. See "Admin UI" below.
 
 ## The null-propagation philosophy
 
@@ -123,6 +124,34 @@ direction double-rounding happened to produce) is the unsafe direction to be wro
 (or similar) HTTP route. Call `ProductCostsModuleService.computeEconomics` directly from
 server-side code in the same Medusa app (another module, a workflow, a script) if you need it;
 don't mistake its absence from the admin API section below for a missing feature in the shipped UI.
+
+## Admin UI
+
+The information architecture follows one rule: **per-product data lives on the product, config and
+bulk operations live in Settings**.
+
+- **Product detail widget** (`product.details.after`) - the primary surface. For every variant of
+  the product it shows the SKU, an editable **net cost**, the live **gross cost** (net grossed up
+  by the configured VAT rate), and the **margin** at the variant's own sell price when one exists
+  in the configured currency. Gross, margin, net income and break-even are all computed with the
+  module's own `computeEconomics`, so the widget never disagrees with the server. Saving writes
+  through the same API the importer uses, and each SKU's full change **history** is one click away
+  in a drawer. Gross cost doubles as the break-even sell price here, because the plugin applies no
+  channel commission of its own.
+- **Settings > Product costs** (`routes/settings/product-costs`) - the plugin **configuration**
+  (resolved `vatRate` and `defaultCurrency`, read-only, sourced from `medusa-config.ts`) and the
+  **bulk `sku,cost` CSV import**, plus the variant-link **resync** maintenance action. This is the
+  home for everything store-wide; nothing here is per-product.
+- **Product costs** top-level route (`routes/product-costs`) - a **read-only** cross-product list
+  for search and audit. Editing a single cost happens on that product's detail page; this list no
+  longer hosts the import (that moved to Settings). It is a secondary browse view, not the way you
+  set a cost.
+
+What Medusa does and does not allow here: the admin exposes widget **zones** on the product detail
+page (`product.details.before/after`, `product.details.side.*`), which is what the cost widget uses.
+It does **not** allow injecting a custom **column** into the core products data table, so there is
+no "cost" column while browsing all products - the per-product widget and the cross-product list
+cover that need instead.
 
 ## Admin API
 
@@ -241,8 +270,9 @@ cost preview that matches how this store is actually configured.
 ### `POST /admin/product-costs/resync-links`
 
 Re-resolves the `CostPrice.variant_id` cache (and the module link) for **every** curated cost, not
-just the SKUs touched by a recent save or import. Also available as the "Resync links" button on
-the "Product costs" admin page. See "How the variant link stays in sync" below for when you need
+just the SKUs touched by a recent save or import. Also available as the "Resync variant links"
+button on the Settings > Product costs page. See "How the variant link stays in sync" below for
+when you need
 this and what it does not fix.
 
 ```json
@@ -312,8 +342,8 @@ module link is orchestration work, not something the `productCosts` module does 
   underlying variant is deleted - it never points at a variant that no longer exists.
 - Re-run the sync at any time (e.g. after deleting and recreating a variant) by importing the
   `syncCostPriceVariantLinksWorkflow` workflow and running it with the affected SKUs, or by calling
-  `POST /admin/product-costs/resync-links` (also exposed as the "Resync links" button on the
-  "Product costs" admin page), which does this for every curated cost in the store.
+  `POST /admin/product-costs/resync-links` (also exposed as the "Resync variant links" button on
+  the Settings > Product costs page), which does this for every curated cost in the store.
 
 **What resyncing does not fix**: `CostPrice.sku` is the durable key this plugin matches on. If a
 variant's SKU is _renamed_ in the Product module (as opposed to the variant being deleted and
@@ -386,7 +416,7 @@ is built so it can.
   currently leaves the cost/history write in place; there is no automatic undo.
 - A background job for the variant-link sync on very large CSV imports, instead of doing it
   synchronously in the same request as the import.
-- Bulk CSV export (the inverse of import) from the "Product costs" page.
+- Bulk CSV export (the inverse of import) from the Settings > Product costs page.
 - Scoping the admin routes to a dedicated permission instead of the default admin-user check.
 
 ## License

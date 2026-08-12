@@ -1,16 +1,6 @@
 import { defineRouteConfig } from "@medusajs/admin-sdk";
 import { CurrencyDollar } from "@medusajs/icons";
-import {
-  Button,
-  Container,
-  Drawer,
-  Heading,
-  Input,
-  Table,
-  Text,
-  Textarea,
-  toast,
-} from "@medusajs/ui";
+import { Button, Container, Drawer, Heading, Input, Table, Text } from "@medusajs/ui";
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { sdk } from "../../lib/sdk";
@@ -37,33 +27,11 @@ interface CostPriceHistoryDTO {
   changed_at: string;
 }
 
-interface ImportCsvErrorDTO {
-  lineNumber: number;
-  raw: string;
-  reason: string;
-}
-
-interface ImportCsvResponse {
-  created: number;
-  updated: number;
-  skipped: number;
-  errors: ImportCsvErrorDTO[];
-  duplicateSkus: Record<string, number>;
-}
-
-interface ResyncLinksResponse {
-  changed: number;
-  skusChecked: number;
-  duplicateSkus: Record<string, number>;
-}
-
-const CSV_PLACEHOLDER =
-  "SKU-1,10.50\nSKU-2,20.00\n# also accepts ; as a delimiter and 20,00 as a decimal comma";
-
 /**
- * Full cost list: search by SKU, bulk CSV import, and a per-row history
- * drawer. Editing a single row's cost is done from the product detail
- * widget - this page is for bulk operations and audit, not row editing.
+ * A read-only cross-product cost overview: search every curated SKU and open
+ * its change history. It is a browse-and-audit surface only - editing a single
+ * cost happens on that product's detail page (the "Product costs" widget), and
+ * bulk CSV import plus the plugin config live under Settings > Product costs.
  */
 const ProductCostsPage = () => {
   const [q, setQ] = useState("");
@@ -74,12 +42,6 @@ const ProductCostsPage = () => {
   const [historySku, setHistorySku] = useState<string | null>(null);
   const [history, setHistory] = useState<CostPriceHistoryDTO[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
-
-  const [csvText, setCsvText] = useState("");
-  const [importing, setImporting] = useState(false);
-  const [importResult, setImportResult] = useState<ImportCsvResponse | null>(null);
-
-  const [resyncing, setResyncing] = useState(false);
 
   const loadCosts = async (search: string) => {
     setLoading(true);
@@ -96,7 +58,7 @@ const ProductCostsPage = () => {
   };
 
   useEffect(() => {
-    // Initial load only - subsequent loads are triggered explicitly by search/import,
+    // Initial load only - subsequent loads are triggered explicitly by search,
     // so `loadCosts` is intentionally not in the dependency list.
     loadCosts("");
   }, []);
@@ -119,69 +81,19 @@ const ProductCostsPage = () => {
     }
   };
 
-  const onCsvFile = async (file: File) => {
-    setCsvText(await file.text());
-  };
-
-  const runResyncLinks = async () => {
-    setResyncing(true);
-    try {
-      const res = await sdk.client.fetch<ResyncLinksResponse>("/admin/product-costs/resync-links", {
-        method: "POST",
-      });
-      const duplicateCount = Object.keys(res.duplicateSkus).length;
-      toast.success(
-        duplicateCount > 0
-          ? `Resynced ${res.skusChecked} SKUs, ${res.changed} link(s) updated - ${duplicateCount} SKU(s) matched more than one variant`
-          : `Resynced ${res.skusChecked} SKUs, ${res.changed} link(s) updated`,
-      );
-      await loadCosts(q);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Resync failed");
-    } finally {
-      setResyncing(false);
-    }
-  };
-
-  const runImport = async () => {
-    if (!csvText.trim()) {
-      toast.error("Paste or upload a CSV file first.");
-      return;
-    }
-    setImporting(true);
-    setImportResult(null);
-    try {
-      const res = await sdk.client.fetch<ImportCsvResponse>("/admin/product-costs/import", {
-        body: { csv: csvText },
-        method: "POST",
-      });
-      setImportResult(res);
-      const duplicateCount = Object.keys(res.duplicateSkus).length;
-      toast.success(
-        `Imported: ${res.created} created, ${res.updated} updated, ${res.skipped} skipped, ${res.errors.length} errors${ 
-          duplicateCount > 0 ? ` - ${duplicateCount} SKU(s) matched more than one variant` : ""}`,
-      );
-      setCsvText("");
-      await loadCosts(q);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Import failed");
-    } finally {
-      setImporting(false);
-    }
-  };
-
   return (
     <Container className="divide-y p-0">
       <div className="flex items-center justify-between px-6 py-4">
-        <Heading level="h1">Product costs</Heading>
-        <div className="flex items-center gap-4">
+        <div>
+          <Heading level="h1">Product costs</Heading>
           <Text className="text-ui-fg-subtle" size="small">
-            {count} SKUs
+            Browse every curated cost. Edit a cost from its product page; import and settings live
+            under Settings.
           </Text>
-          <Button isLoading={resyncing} onClick={runResyncLinks} size="small" variant="secondary">
-            Resync links
-          </Button>
         </div>
+        <Text className="text-ui-fg-subtle" size="small">
+          {count} SKUs
+        </Text>
       </div>
 
       <div className="px-6 py-4">
@@ -195,58 +107,6 @@ const ProductCostsPage = () => {
             Search
           </Button>
         </form>
-      </div>
-
-      <div className="px-6 py-4">
-        <Heading className="mb-2" level="h2">
-          Bulk import (CSV)
-        </Heading>
-        <Text className="text-ui-fg-subtle mb-2" size="small">
-          Two columns, sku and net cost. Quotes, a ";" delimiter, and decimal commas are all
-          accepted - see the README for the exact format.
-        </Text>
-        <Textarea
-          onChange={(event) => setCsvText(event.target.value)}
-          placeholder={CSV_PLACEHOLDER}
-          rows={6}
-          value={csvText}
-        />
-        <div className="mt-2 flex items-center gap-2">
-          <Button isLoading={importing} onClick={runImport}>
-            Import
-          </Button>
-          <label className="text-ui-fg-interactive cursor-pointer text-sm">
-            Upload a file instead
-            <input
-              accept=".csv,text/csv"
-              className="hidden"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) {
-                  onCsvFile(file);
-                }
-              }}
-              type="file"
-            />
-          </label>
-        </div>
-
-        {importResult && importResult.errors.length > 0 && (
-          <div className="mt-4">
-            <Text className="font-medium" size="small">
-              {importResult.errors.length} row(s) could not be imported:
-            </Text>
-            <ul className="mt-1 list-disc pl-5">
-              {importResult.errors.map((err) => (
-                <li key={`${err.lineNumber}-${err.raw}`}>
-                  <Text className="text-ui-fg-subtle" size="small">
-                    Line {err.lineNumber}: {err.reason} ({err.raw})
-                  </Text>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
       </div>
 
       <Table>
@@ -278,7 +138,7 @@ const ProductCostsPage = () => {
             <Table.Row>
               <Table.Cell>
                 <Text size="small">
-                  No costs yet - import a CSV or set one from a product page.
+                  No costs yet - import a CSV from Settings, or set one from a product page.
                 </Text>
               </Table.Cell>
               <Table.Cell />

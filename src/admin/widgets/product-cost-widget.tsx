@@ -1,8 +1,9 @@
 import { defineWidgetConfig } from "@medusajs/admin-sdk";
 import type { AdminProduct, DetailWidgetProps } from "@medusajs/framework/types";
-import { Button, Container, Heading, Input, Table, Text, toast } from "@medusajs/ui";
+import { Badge, Button, Container, Drawer, Heading, Input, Table, Text, toast } from "@medusajs/ui";
 import { useEffect, useMemo, useState } from "react";
-import { grossFromNet } from "../../modules/product-costs/lib/money";
+import { computeEconomics } from "../../modules/product-costs/lib/economics";
+import { formatAmount, formatPercent, parseInputCost, resolveVariantPrice } from "../lib/format";
 import { sdk } from "../lib/sdk";
 
 interface ConfigResponse {
@@ -16,6 +17,16 @@ interface CostPriceDTO {
   currency: string;
 }
 
+interface CostHistoryDTO {
+  id: string;
+  sku: string;
+  unit_cost_net: number;
+  currency: string;
+  source: string;
+  changed_by: string | null;
+  changed_at: string;
+}
+
 interface CostRow {
   variantId: string;
   variantTitle: string;
@@ -23,22 +34,25 @@ interface CostRow {
   /** String-bound to the input; parsed on save. */
   unitCostNet: string;
   currency: string;
+  /** The variant's own sell price in the configured currency, when known. */
+  sellingPrice?: number;
   saving: boolean;
 }
 
-function parseInputCost(raw: string): number | undefined {
-  const value = Number.parseFloat(raw.replace(",", "."));
-  return Number.isFinite(value) && value > 0 ? value : undefined;
-}
-
 /**
- * Shows every variant of the current product with an editable net cost and
- * a live gross-cost preview (net cost grossed up by the plugin's configured
- * VAT rate). Saving a row calls the same admin API the CSV importer and the
- * "Product costs" page use, so all three stay consistent.
+ * The primary place a cost is set. For every variant of the product it shows an
+ * editable net cost, the live gross cost (grossed up by the plugin's configured
+ * VAT rate), and - when the variant carries a sell price in the configured
+ * currency - the margin at that price. All computed with the module's own
+ * `computeEconomics`, so the widget never disagrees with the server.
+ *
+ * Saving a row calls the same admin API the CSV importer and the standalone
+ * cost list use, so all three stay consistent, and each SKU's change history is
+ * one click away in a drawer. Bulk CSV import and the plugin config now live in
+ * Settings > Product costs; this widget is where per-product costing happens.
  */
 const ProductCostWidget = ({ data }: DetailWidgetProps<AdminProduct>) => {
-  const variants = data.variants ?? [];
+  const variants = useMemo(() => data.variants ?? [], [data.variants]);
   const skus = useMemo(
     () => [
       ...new Set(
@@ -51,6 +65,10 @@ const ProductCostWidget = ({ data }: DetailWidgetProps<AdminProduct>) => {
   const [config, setConfig] = useState<ConfigResponse | null>(null);
   const [rows, setRows] = useState<CostRow[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const [historySku, setHistorySku] = useState<string | null>(null);
+  const [history, setHistory] = useState<CostHistoryDTO[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -79,6 +97,7 @@ const ProductCostWidget = ({ data }: DetailWidgetProps<AdminProduct>) => {
           return {
             currency: existing?.currency ?? configRes.defaultCurrency,
             saving: false,
+            sellingPrice: resolveVariantPrice(variant.prices, configRes.defaultCurrency),
             sku: variant.sku ?? "",
             unitCostNet: existing ? String(existing.unit_cost_net) : "",
             variantId: variant.id,
@@ -145,17 +164,19 @@ const ProductCostWidget = ({ data }: DetailWidgetProps<AdminProduct>) => {
     }
   };
 
-  const grossCostPreview = (row: CostRow): string | null => {
-    const unitCostNet = parseInputCost(row.unitCostNet);
-    if (!config || unitCostNet === undefined) {
-      return null;
+  const openHistory = async (sku: string) => {
+    setHistorySku(sku);
+    setHistoryLoading(true);
+    try {
+      const res = await sdk.client.fetch<{ history: CostHistoryDTO[] }>(
+        `/admin/product-costs/${encodeURIComponent(sku)}/history`,
+      );
+      setHistory(res.history);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to load history");
+    } finally {
+      setHistoryLoading(false);
     }
-    // Use the same `grossFromNet` (half-up round2) the server uses, not a
-    // plain `.toFixed(2)` - the two diverge at exact half-cent inputs (e.g.
-    // 0.50 net at 23% VAT: `.toFixed(2)` gives 0.61, grossFromNet gives the
-    // correct 0.62), which would make this preview lie about what gets
-    // saved.
-    return grossFromNet(unitCostNet, config.vatRate).toFixed(2);
   };
 
   if (variants.length === 0) {
@@ -165,12 +186,18 @@ const ProductCostWidget = ({ data }: DetailWidgetProps<AdminProduct>) => {
   return (
     <Container className="divide-y p-0">
       <div className="flex items-center justify-between px-6 py-4">
-        <Heading level="h2">Product costs</Heading>
-        {config && (
+        <div>
+          <Heading level="h2">Product costs</Heading>
           <Text className="text-ui-fg-subtle" size="small">
-            VAT {Math.round(config.vatRate * 100)}%
+            Net purchase cost per variant. Gross is grossed up by VAT and is also the break-even
+            sell price - this plugin applies no channel commission.
           </Text>
-        )}
+        </div>
+        {config ? (
+          <Text className="text-ui-fg-subtle" size="small">
+            VAT {Math.round(config.vatRate * 100)}% · {config.defaultCurrency}
+          </Text>
+        ) : null}
       </div>
       <Table>
         <Table.Header>
@@ -178,7 +205,8 @@ const ProductCostWidget = ({ data }: DetailWidgetProps<AdminProduct>) => {
             <Table.HeaderCell>Variant</Table.HeaderCell>
             <Table.HeaderCell>SKU</Table.HeaderCell>
             <Table.HeaderCell>Net cost</Table.HeaderCell>
-            <Table.HeaderCell>Gross cost</Table.HeaderCell>
+            <Table.HeaderCell>Gross (incl. VAT)</Table.HeaderCell>
+            <Table.HeaderCell>Margin</Table.HeaderCell>
             <Table.HeaderCell />
           </Table.Row>
         </Table.Header>
@@ -192,42 +220,125 @@ const ProductCostWidget = ({ data }: DetailWidgetProps<AdminProduct>) => {
               <Table.Cell />
               <Table.Cell />
               <Table.Cell />
+              <Table.Cell />
             </Table.Row>
           ) : (
-            rows.map((row) => (
-              <Table.Row key={row.variantId}>
-                <Table.Cell>{row.variantTitle}</Table.Cell>
-                <Table.Cell>
-                  {row.sku || <Text className="text-ui-fg-muted">no sku</Text>}
-                </Table.Cell>
-                <Table.Cell>
-                  <Input
-                    onChange={(event) => updateRow(row.variantId, event.target.value)}
-                    placeholder="0.00"
-                    size="small"
-                    value={row.unitCostNet}
-                  />
-                </Table.Cell>
-                <Table.Cell>
-                  <Text size="small">
-                    {grossCostPreview(row) ?? "-"} {row.currency}
-                  </Text>
-                </Table.Cell>
-                <Table.Cell>
-                  <Button
-                    isLoading={row.saving}
-                    onClick={() => save(row)}
-                    size="small"
-                    variant="secondary"
-                  >
-                    Save
-                  </Button>
-                </Table.Cell>
-              </Table.Row>
-            ))
+            rows.map((row) => {
+              const netCost = parseInputCost(row.unitCostNet);
+              const econ = config
+                ? computeEconomics({
+                    netCost,
+                    sellingPrice: row.sellingPrice,
+                    vatRate: config.vatRate,
+                  })
+                : {};
+              const marginKnown = econ.marginPct !== undefined;
+              return (
+                <Table.Row key={row.variantId}>
+                  <Table.Cell>{row.variantTitle}</Table.Cell>
+                  <Table.Cell>
+                    {row.sku || <Text className="text-ui-fg-muted">no sku</Text>}
+                  </Table.Cell>
+                  <Table.Cell>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        className="w-28"
+                        onChange={(event) => updateRow(row.variantId, event.target.value)}
+                        placeholder="0.00"
+                        size="small"
+                        value={row.unitCostNet}
+                      />
+                      <Text className="text-ui-fg-muted" size="small">
+                        {row.currency}
+                      </Text>
+                    </div>
+                  </Table.Cell>
+                  <Table.Cell>
+                    <Text size="small">
+                      {formatAmount(econ.grossCost)} {row.currency}
+                    </Text>
+                  </Table.Cell>
+                  <Table.Cell>
+                    {marginKnown ? (
+                      <div className="flex flex-col gap-y-1">
+                        <Badge color={(econ.netIncome ?? 0) >= 0 ? "green" : "red"} size="2xsmall">
+                          {formatPercent(econ.marginPct)}
+                        </Badge>
+                        <Text className="text-ui-fg-muted" size="xsmall">
+                          {formatAmount(econ.netIncome)} {row.currency} at{" "}
+                          {formatAmount(row.sellingPrice)}
+                        </Text>
+                      </div>
+                    ) : (
+                      <Text className="text-ui-fg-muted" size="xsmall">
+                        {netCost === undefined ? "-" : `set a ${row.currency} price to see margin`}
+                      </Text>
+                    )}
+                  </Table.Cell>
+                  <Table.Cell>
+                    <div className="flex justify-end gap-x-2">
+                      <Button
+                        isLoading={row.saving}
+                        onClick={() => save(row)}
+                        size="small"
+                        variant="secondary"
+                      >
+                        Save
+                      </Button>
+                      <Button
+                        disabled={!row.sku}
+                        onClick={() => openHistory(row.sku)}
+                        size="small"
+                        variant="transparent"
+                      >
+                        History
+                      </Button>
+                    </div>
+                  </Table.Cell>
+                </Table.Row>
+              );
+            })
           )}
         </Table.Body>
       </Table>
+
+      <Drawer onOpenChange={(open) => !open && setHistorySku(null)} open={historySku !== null}>
+        <Drawer.Content>
+          <Drawer.Header>
+            <Drawer.Title>Cost history for {historySku}</Drawer.Title>
+          </Drawer.Header>
+          <Drawer.Body>
+            {historyLoading ? (
+              <Text size="small">Loading...</Text>
+            ) : (history.length === 0 ? (
+              <Text size="small">No history recorded yet.</Text>
+            ) : (
+              <Table>
+                <Table.Header>
+                  <Table.Row>
+                    <Table.HeaderCell>Cost</Table.HeaderCell>
+                    <Table.HeaderCell>Source</Table.HeaderCell>
+                    <Table.HeaderCell>Changed by</Table.HeaderCell>
+                    <Table.HeaderCell>Changed at</Table.HeaderCell>
+                  </Table.Row>
+                </Table.Header>
+                <Table.Body>
+                  {history.map((entry) => (
+                    <Table.Row key={entry.id}>
+                      <Table.Cell>
+                        {entry.unit_cost_net} {entry.currency}
+                      </Table.Cell>
+                      <Table.Cell>{entry.source}</Table.Cell>
+                      <Table.Cell>{entry.changed_by ?? "-"}</Table.Cell>
+                      <Table.Cell>{new Date(entry.changed_at).toLocaleString()}</Table.Cell>
+                    </Table.Row>
+                  ))}
+                </Table.Body>
+              </Table>
+            ))}
+          </Drawer.Body>
+        </Drawer.Content>
+      </Drawer>
     </Container>
   );
 };
