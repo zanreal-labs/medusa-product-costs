@@ -4,3 +4,5 @@ allowBuilds:
   esbuild: true
   msgpackr-extract: true
   protobufjs: true
+  "@zanreal/medusa-admin-kit": true
+  "@zanreal/medusa-admin-kit@git+ssh://git@github.com/zanreal-labs/medusa-admin-kit.git#f313157bf066bb47504c9359a8637881ab07d144": true

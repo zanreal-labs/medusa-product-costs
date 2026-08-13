@@ -7,6 +7,10 @@ settings:
 importers:
 
   .:
+    dependencies:
+      '@zanreal/medusa-admin-kit':
+        specifier: github:zanreal-labs/medusa-admin-kit#f313157bf066bb47504c9359a8637881ab07d144
+        version: git+ssh://git@github.com/zanreal-labs/medusa-admin-kit.git#f313157bf066bb47504c9359a8637881ab07d144(@medusajs/admin-sdk@2.18.0)(@medusajs/admin-shared@2.18.0)(@medusajs/framework@2.18.0(@medusajs/cli@2.18.0(@types/node@20.19.43))(@types/node@20.19.43)(ioredis@5.11.1)(vite@5.4.21(@types/node@20.19.43))(zod@4.2.0))(@medusajs/icons@2.18.0(react@18.3.1))(@medusajs/js-sdk@2.18.0)(@medusajs/ui@4.2.0(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
     devDependencies:
       '@medusajs/admin-sdk':
         specifier: 2.18.0
@@ -2858,6 +2862,20 @@ packages:
   '@whatwg-node/promise-helpers@1.3.2':
     resolution: {integrity: sha512-Nst5JdK47VIl9UcGwtv2Rcgyn5lWtZ0/mhRQ4G8NN2isxpq2TO30iqHzmwoJycjWuyUfg3GFXqP/gFHXeV57IA==}
     engines: {node: '>=16.0.0'}
+
+  '@zanreal/medusa-admin-kit@git+ssh://git@github.com/zanreal-labs/medusa-admin-kit.git#f313157bf066bb47504c9359a8637881ab07d144':
+    resolution: {commit: f313157bf066bb47504c9359a8637881ab07d144, repo: git@github.com:zanreal-labs/medusa-admin-kit.git, type: git}
+    version: 0.1.0
+    engines: {node: '>=22.13'}
+    peerDependencies:
+      '@medusajs/admin-sdk': 2.18.0
+      '@medusajs/admin-shared': 2.18.0
+      '@medusajs/framework': 2.18.0
+      '@medusajs/icons': 2.18.0
+      '@medusajs/js-sdk': 2.18.0
+      '@medusajs/ui': 4.2.0
+      react: ^18.2.0
+      react-dom: ^18.2.0
 
   accepts@1.3.8:
     resolution: {integrity: sha512-PYAthTa2m2VKxuvSD3DPC/Gy+U+sOA1LAuT8mkmRuvw+NACSaeXEQ+NHcVF7rONl6qcaxV3Uuemwawk+7+SJLw==}
@@ -9216,6 +9234,17 @@ snapshots:
   '@whatwg-node/promise-helpers@1.3.2':
     dependencies:
       tslib: 2.6.3
+
+  '@zanreal/medusa-admin-kit@git+ssh://git@github.com/zanreal-labs/medusa-admin-kit.git#f313157bf066bb47504c9359a8637881ab07d144(@medusajs/admin-sdk@2.18.0)(@medusajs/admin-shared@2.18.0)(@medusajs/framework@2.18.0(@medusajs/cli@2.18.0(@types/node@20.19.43))(@types/node@20.19.43)(ioredis@5.11.1)(vite@5.4.21(@types/node@20.19.43))(zod@4.2.0))(@medusajs/icons@2.18.0(react@18.3.1))(@medusajs/js-sdk@2.18.0)(@medusajs/ui@4.2.0(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+    dependencies:
+      '@medusajs/admin-sdk': 2.18.0
+      '@medusajs/admin-shared': 2.18.0
+      '@medusajs/framework': 2.18.0(@medusajs/cli@2.18.0(@types/node@20.19.43))(@types/node@20.19.43)(ioredis@5.11.1)(vite@5.4.21(@types/node@20.19.43))(zod@4.2.0)
+      '@medusajs/icons': 2.18.0(react@18.3.1)
+      '@medusajs/js-sdk': 2.18.0
+      '@medusajs/ui': 4.2.0(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3)
+      react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
 
   accepts@1.3.8:
     dependencies:
