@@ -39,6 +39,9 @@ function createService(options?: ConstructorParameters<typeof ProductCostsModule
     createCostPriceHistories: ReturnType<typeof vi.fn>;
     listAndCountCostPrices: ReturnType<typeof vi.fn>;
     listAndCountCostPriceHistories: ReturnType<typeof vi.fn>;
+    listProductCostsSettings: ReturnType<typeof vi.fn>;
+    createProductCostsSettings: ReturnType<typeof vi.fn>;
+    updateProductCostsSettings: ReturnType<typeof vi.fn>;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     baseRepository_: any;
   };
@@ -49,6 +52,15 @@ function createService(options?: ConstructorParameters<typeof ProductCostsModule
   service.createCostPriceHistories = vi.fn().mockResolvedValue({});
   service.listAndCountCostPrices = vi.fn().mockResolvedValue([[], 0]);
   service.listAndCountCostPriceHistories = vi.fn().mockResolvedValue([[], 0]);
+  // No settings row persisted yet by default - `getSettings` creates the
+  // fresh-install singleton (both columns null) the first time it is read,
+  // matching production behavior for a store that has never opened
+  // Settings > Product costs.
+  service.listProductCostsSettings = vi.fn().mockResolvedValue([]);
+  service.createProductCostsSettings = vi
+    .fn()
+    .mockImplementation(async (rows: unknown) => [(rows as Record<string, unknown>[])[0]]);
+  service.updateProductCostsSettings = vi.fn().mockResolvedValue([]);
   service.baseRepository_ = {
     getFreshManager: vi.fn(() => ({ __fake: "fresh-manager" })),
     transaction: vi.fn(
@@ -392,6 +404,188 @@ describe("ProductCostsModuleService.computeEconomics", () => {
 
     expect(result.grossCost).toBeUndefined();
     expect(result.netIncome).toBeUndefined();
+  });
+});
+
+/**
+ * A stateful stand-in for the settings-singleton persistence, shared by the
+ * tests below that need a save to actually be visible to a later read - the
+ * fixed-mock-return-value style used everywhere else in this file cannot
+ * express "read back what was just written."
+ */
+function withPersistedSettingsStore(service: ReturnType<typeof createService>): {
+  getStoredRow: () => Record<string, unknown> | undefined;
+} {
+  let storedRow: Record<string, unknown> | undefined;
+
+  service.listProductCostsSettings = vi
+    .fn()
+    .mockImplementation(async () => (storedRow ? [storedRow] : []));
+  service.createProductCostsSettings = vi.fn().mockImplementation(async (rows: unknown) => {
+    storedRow = (rows as Record<string, unknown>[])[0];
+    return [storedRow];
+  });
+  service.updateProductCostsSettings = vi.fn().mockImplementation(async (rows: unknown) => {
+    const [patch] = rows as Record<string, unknown>[];
+    storedRow = { ...storedRow, ...patch };
+    return [storedRow];
+  });
+
+  return { getStoredRow: () => storedRow };
+}
+
+describe("ProductCostsModuleService settings singleton", () => {
+  it("getSettings creates the fresh-install row (both columns null) on first read", async () => {
+    const service = createService();
+
+    const settings = await service.getSettings();
+
+    expect(settings).toEqual({
+      default_currency: null,
+      id: "pcset_singleton",
+      vat_rate: null,
+    });
+    expect(service.createProductCostsSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("getSettings returns the existing row without creating a second one", async () => {
+    const service = createService();
+    service.listProductCostsSettings.mockResolvedValue([
+      { default_currency: "EUR", id: "pcset_singleton", vat_rate: "0.19" },
+    ]);
+
+    const settings = await service.getSettings();
+
+    expect(settings).toEqual({ default_currency: "EUR", id: "pcset_singleton", vat_rate: 0.19 });
+    expect(service.createProductCostsSettings).not.toHaveBeenCalled();
+  });
+
+  it("normalizes a bigNumber-shaped vat_rate to a real number, same as unit_cost_net", async () => {
+    const service = createService();
+    service.listProductCostsSettings.mockResolvedValue([
+      { default_currency: null, id: "pcset_singleton", vat_rate: "0.19" },
+    ]);
+
+    const settings = await service.getSettings();
+
+    expect(settings.vat_rate).toBe(0.19);
+    expect(typeof settings.vat_rate).toBe("number");
+  });
+
+  it("re-reads the winning row when a concurrent first-read wins the insert race", async () => {
+    const service = createService();
+    service.listProductCostsSettings
+      .mockResolvedValueOnce([]) // this call's own read: nothing yet
+      .mockResolvedValueOnce([{ default_currency: null, id: "pcset_singleton", vat_rate: null }]); // re-read after the insert conflict
+    service.createProductCostsSettings.mockRejectedValue(new Error("duplicate key"));
+
+    const settings = await service.getSettings();
+
+    expect(settings).toEqual({
+      default_currency: null,
+      id: "pcset_singleton",
+      vat_rate: null,
+    });
+  });
+
+  it("getResolvedOptions falls back to moduleOptions when nothing is persisted", async () => {
+    const service = createService({ defaultCurrency: "EUR", vatRate: 0.19 });
+
+    const resolved = await service.getResolvedOptions();
+
+    expect(resolved).toEqual({ defaultCurrency: "EUR", vatRate: 0.19 });
+  });
+
+  it("getResolvedOptions prefers a persisted override over moduleOptions", async () => {
+    const service = createService({ defaultCurrency: "PLN", vatRate: 0.23 });
+    service.listProductCostsSettings.mockResolvedValue([
+      { default_currency: "USD", id: "pcset_singleton", vat_rate: "0.08" },
+    ]);
+
+    const resolved = await service.getResolvedOptions();
+
+    expect(resolved).toEqual({ defaultCurrency: "USD", vatRate: 0.08 });
+  });
+
+  it("getResolvedOptions falls back per-field, not all-or-nothing", async () => {
+    const service = createService({ defaultCurrency: "PLN", vatRate: 0.23 });
+    // Only the VAT rate is overridden - currency is still unset (null).
+    service.listProductCostsSettings.mockResolvedValue([
+      { default_currency: null, id: "pcset_singleton", vat_rate: "0.05" },
+    ]);
+
+    const resolved = await service.getResolvedOptions();
+
+    expect(resolved).toEqual({ defaultCurrency: "PLN", vatRate: 0.05 });
+  });
+
+  it("updateSettings writes only the given keys and returns the refreshed row", async () => {
+    const service = createService();
+    const store = withPersistedSettingsStore(service);
+
+    const result = await service.updateSettings({ vat_rate: 0.19 });
+
+    expect(service.updateProductCostsSettings).toHaveBeenCalledWith([
+      { id: "pcset_singleton", vat_rate: 0.19 },
+    ]);
+    expect(result.vat_rate).toBe(0.19);
+    expect(store.getStoredRow()).toMatchObject({ vat_rate: 0.19 });
+  });
+
+  it("updateSettings(null) clears a previously-saved override back to moduleOptions", async () => {
+    const service = createService({ defaultCurrency: "PLN", vatRate: 0.23 });
+    withPersistedSettingsStore(service);
+
+    await service.updateSettings({ vat_rate: 0.19 });
+    let resolved = await service.getResolvedOptions();
+    expect(resolved.vatRate).toBe(0.19);
+
+    await service.updateSettings({ vat_rate: null });
+    resolved = await service.getResolvedOptions();
+    expect(resolved.vatRate).toBe(0.23);
+  });
+
+  it("saving a VAT rate override immediately changes computeEconomics's math - no restart needed", async () => {
+    const service = createService({ defaultCurrency: "PLN", vatRate: 0.23 });
+    withPersistedSettingsStore(service);
+
+    // Before any save: computeEconomics falls back to the moduleOptions VAT
+    // rate configured in medusa-config.ts (0.23 = 23%).
+    const before = await service.computeEconomics({ netCost: 100 });
+    expect(before.grossCost).toBe(123);
+
+    // The operator saves a new VAT rate from Settings > Product costs.
+    await service.updateSettings({ vat_rate: 0.19 });
+
+    // The very next computeEconomics call - with no service restart and no
+    // change to moduleOptions - picks up the persisted override.
+    const after = await service.computeEconomics({ netCost: 100 });
+    expect(after.grossCost).toBe(119);
+  });
+
+  it("saving a default_currency override is honored by upsertCost when the caller omits currency", async () => {
+    const service = createService({ defaultCurrency: "PLN", vatRate: 0.23 });
+    withPersistedSettingsStore(service);
+    service.listCostPrices.mockResolvedValue([]);
+    service.createCostPrices.mockImplementation(async (data: Record<string, unknown>) => data);
+
+    await service.updateSettings({ default_currency: "EUR" });
+    await service.upsertCost("SKU-1", 10, { source: "manual" });
+
+    expect(service.createCostPrices).toHaveBeenCalledWith(
+      expect.objectContaining({ currency: "EUR" }),
+      expect.anything(),
+    );
+  });
+
+  it("an explicit vatRate passed to computeEconomics still wins over a persisted override", async () => {
+    const service = createService({ defaultCurrency: "PLN", vatRate: 0.23 });
+    withPersistedSettingsStore(service);
+
+    await service.updateSettings({ vat_rate: 0.19 });
+    const result = await service.computeEconomics({ netCost: 100, vatRate: 0.05 });
+
+    expect(result.grossCost).toBe(105);
   });
 });
 

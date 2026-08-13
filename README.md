@@ -94,8 +94,13 @@ npx medusa db:migrate
 | `defaultCurrency` | `string` | `"PLN"` | Currency recorded on a cost when the caller does not specify one. |
 
 Both are per-store, not per-cost: every `CostPrice` row does still carry its own `currency`
-column, but the VAT rate used in a margin calculation is always the store-wide option (or an
+column, but the VAT rate used in a margin calculation is always the store-wide setting (or an
 explicit override passed to that one calculation) - it is not stored per row.
+
+**These are defaults, not the final word.** An operator can override either one from **Settings >
+Product costs** in the admin, without touching `medusa-config.ts` or restarting the backend - see
+"Admin UI" and "Admin API" below. The values above are what a fresh install starts from, and what
+a saved override falls back to if it is ever reset.
 
 ## The margin math
 
@@ -142,9 +147,9 @@ cross-product browsing belongs instead.
   browser this plugin ships. Gross cost doubles as the break-even sell price here, because the
   plugin applies no channel commission of its own.
 - **Settings > Product costs** (`routes/settings/product-costs`) - the plugin **configuration**
-  (resolved `vatRate` and `defaultCurrency`, read-only, sourced from `medusa-config.ts`) and the
-  **bulk `sku,cost` CSV import**, plus the variant-link **resync** maintenance action. This is the
-  home for everything store-wide; nothing here is per-product.
+  (an editable **VAT rate** and **default currency**, with a Save action - see "Persisted settings"
+  below) and the **bulk `sku,cost` CSV import**, plus the variant-link **resync** maintenance
+  action. This is the home for everything store-wide; nothing here is per-product.
 
 What Medusa does and does not allow here: the admin exposes widget **zones** on the product detail
 page (`product.details.before/after`, `product.details.side.*`), which is what the cost widget uses.
@@ -160,6 +165,29 @@ opt-in via the shared admin-kit view - not a plugin-owned table. An earlier revi
 plugin shipped a top-level "Product costs" route with a read-only cross-product list; it has been
 removed (per-product data belongs on the product, full stop) and will not come back once the
 admin-kit column ships.
+
+## Persisted settings
+
+The VAT rate and default currency are no longer fixed at boot. `ProductCostsSettings`
+(`src/modules/product-costs/models/product-costs-settings.ts`) is a one-row singleton - both
+columns nullable, `null` meaning "not overridden here" - that Settings > Product costs reads and
+writes through `POST /admin/product-costs/config` (see "Admin API" below).
+
+`ProductCostsModuleService.getResolvedOptions()` is what everything else reads: it returns the
+persisted override for a field when one is saved, and falls back to the `vatRate`/`defaultCurrency`
+plugin options from `medusa-config.ts` otherwise - per field, not all-or-nothing, so overriding the
+VAT rate does not force you to also override the currency. `computeEconomics` and the default
+currency `upsertCost` applies when a caller does not specify one both resolve through this method,
+so a VAT rate saved from the admin changes every margin calculation on its very next call - no
+backend restart. `moduleOptions` (the raw `medusa-config.ts` values) is still available on the
+service for the rare caller that wants the boot-time configuration specifically, unaffected by any
+admin override.
+
+The singleton is created lazily, with both columns `null`, the first time it is read - a store that
+has never opened Settings > Product costs behaves exactly as it did before this settings surface
+existed. Saving a value persists it; explicitly clearing a field (the Settings page's "Reset to
+plugin default" action sends `null` for both) removes the override rather than pinning it to
+whatever the last-saved number happened to be.
 
 ## Admin API
 
@@ -272,8 +300,45 @@ as the list route above (default `50`/`0`, capped at `500`, negative values reje
 
 ### `GET /admin/product-costs/config`
 
-The resolved plugin options (`vatRate`, `defaultCurrency`), so the admin UI can compute a gross
-cost preview that matches how this store is actually configured.
+The resolved configuration (`vatRate`, `defaultCurrency`) - a persisted override saved through
+`POST` below when one exists, falling back to the `medusa-config.ts` plugin options otherwise - so
+the admin UI can compute a gross cost preview that matches how this store actually computes.
+`vatRateOverridden`/`defaultCurrencyOverridden` report whether each field is currently an override
+or the plugin default, which is what the Settings page uses to show/hide "Reset to plugin default".
+
+```json
+{
+  "vatRate": 0.23,
+  "defaultCurrency": "PLN",
+  "vatRateOverridden": false,
+  "defaultCurrencyOverridden": false
+}
+```
+
+### `POST /admin/product-costs/config`
+
+Persists an override for one or both settings. Only the keys present in the body are written, so
+saving the VAT rate never disturbs a previously-saved currency (and vice versa). Send a key as
+`null` to explicitly clear that override back to the `medusa-config.ts` default - the Settings
+page's "Reset to plugin default" button sends both keys as `null`.
+
+```json
+// Request
+{ "vat_rate": 0.19 }
+
+// Response - same shape as the GET above, reflecting the just-saved state
+{ "vatRate": 0.19, "defaultCurrency": "PLN", "vatRateOverridden": true, "defaultCurrencyOverridden": false }
+```
+
+`vat_rate` must be a number between `0` and `1` (a fraction, e.g. `0.23` for 23%) or `null`.
+`default_currency` must be a 3-letter ISO-4217 code (case-insensitive, uppercased on save) or
+`null`. An unknown key, or a body with no writable key at all, is rejected with `400` rather than
+silently ignored.
+
+Once saved, the change is live immediately: `computeEconomics` and the default currency `upsertCost`
+falls back to both resolve through `ProductCostsModuleService.getResolvedOptions()`, so the very
+next call - from the admin widget, the CSV importer, or any server-side code calling the service
+directly - picks it up. No backend restart.
 
 ### `POST /admin/product-costs/resync-links`
 

@@ -112,3 +112,25 @@ export interface ComputeEconomicsInput {
   /** Overrides the plugin's configured default for this one calculation. */
   vatRate?: number;
 }
+
+/**
+ * The persisted settings singleton, as callers read it. `null` on either
+ * field means "not overridden here" - the service resolves it against
+ * `moduleOptions` (see `getResolvedOptions`), never against a literal 0 or
+ * empty string.
+ */
+export interface ProductCostsSettingsRow {
+  id: string;
+  vat_rate: number | null;
+  default_currency: string | null;
+}
+
+/**
+ * The columns an admin write may set on the settings singleton. Passing a
+ * key with value `null` explicitly clears that override back to "use
+ * moduleOptions"; omitting the key entirely leaves it untouched.
+ */
+export interface ProductCostsSettingsPatch {
+  vat_rate?: number | null;
+  default_currency?: string | null;
+}

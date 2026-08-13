@@ -12,6 +12,7 @@ import type { EconomicsResult } from "./lib/economics";
 import { round2 } from "./lib/money";
 import CostPriceHistory from "./models/cost-price-history";
 import CostPrice from "./models/cost-price";
+import ProductCostsSettings from "./models/product-costs-settings";
 import type {
   ComputeEconomicsInput,
   CostPriceDTO,
@@ -21,10 +22,18 @@ import type {
   ListCostsFilters,
   ListCostsPagination,
   ProductCostsModuleOptions,
+  ProductCostsSettingsPatch,
+  ProductCostsSettingsRow,
   ResolvedProductCostsModuleOptions,
   UpsertCostInput,
 } from "./types";
 import { resolveModuleOptions } from "./types";
+
+/**
+ * Fixed primary key for the settings singleton - see `ProductCostsSettings`
+ * for why a fixed id makes this a true singleton.
+ */
+export const PRODUCT_COSTS_SETTINGS_ID = "pcset_singleton";
 
 type InjectedDependencies = Record<string, unknown>;
 
@@ -63,6 +72,20 @@ function toCostPriceHistoryDTO(row: CostPriceHistoryDTO): CostPriceHistoryDTO {
 }
 
 /**
+ * `ProductCostsSettings.vat_rate` is declared with `model.bigNumber()` for
+ * the same reason `CostPrice.unit_cost_net` is - it does not round-trip
+ * through the ORM as a plain JS `number`. Normalize it here, at the one
+ * place every read of the settings row passes through. `null` (not
+ * overridden) is passed through untouched - it is never coerced to `0`.
+ */
+function toSettingsDTO(row: ProductCostsSettingsRow): ProductCostsSettingsRow {
+  return {
+    ...row,
+    vat_rate: row.vat_rate === null || row.vat_rate === undefined ? null : Number(row.vat_rate),
+  };
+}
+
+/**
  * Module service for the product-costs module. Deliberately has no
  * knowledge of the Product module or any other Medusa module - resolving a
  * SKU to a variant id, and creating the module link, is orchestration work
@@ -72,6 +95,7 @@ function toCostPriceHistoryDTO(row: CostPriceHistoryDTO): CostPriceHistoryDTO {
 class ProductCostsModuleService extends MedusaService({
   CostPrice,
   CostPriceHistory,
+  ProductCostsSettings,
 }) {
   protected readonly moduleOptions_: ResolvedProductCostsModuleOptions;
 
@@ -80,8 +104,92 @@ class ProductCostsModuleService extends MedusaService({
     this.moduleOptions_ = resolveModuleOptions(options);
   }
 
+  /**
+   * The plugin options as configured in `medusa-config.ts`, unaffected by
+   * anything saved through Settings > Product costs. Kept around because it
+   * is the fallback `getResolvedOptions` resolves against - most callers
+   * want `getResolvedOptions()` instead, which is what actually reflects an
+   * admin-saved override.
+   */
   get moduleOptions(): ResolvedProductCostsModuleOptions {
     return this.moduleOptions_;
+  }
+
+  // ─── Settings singleton: the persisted, operator-editable VAT rate and currency ───
+
+  /**
+   * The settings singleton, created with both columns `null` ("not
+   * overridden") on first read. The fixed id makes it a true singleton: a
+   * concurrent first-read that loses the insert re-reads the winner's row
+   * rather than duplicating it, and a settings row written this rarely never
+   * contends in practice.
+   */
+  async getSettings(): Promise<ProductCostsSettingsRow> {
+    const existing = await this.readSettingsRow();
+    if (existing) {
+      return existing;
+    }
+    try {
+      const [created] = await this.createProductCostsSettings([
+        { default_currency: null, id: PRODUCT_COSTS_SETTINGS_ID, vat_rate: null },
+      ]);
+      return toSettingsDTO(created as unknown as ProductCostsSettingsRow);
+    } catch (error) {
+      // A concurrent first-read won the insert under the fixed id. The row exists now.
+      const row = await this.readSettingsRow();
+      if (row) {
+        return row;
+      }
+      throw error;
+    }
+  }
+
+  /** The stored singleton row, or undefined before its first read created it. */
+  protected async readSettingsRow(): Promise<ProductCostsSettingsRow | undefined> {
+    const [row] = await this.listProductCostsSettings(
+      { id: PRODUCT_COSTS_SETTINGS_ID },
+      { take: 1 },
+    );
+    return row ? toSettingsDTO(row as unknown as ProductCostsSettingsRow) : undefined;
+  }
+
+  /**
+   * Save an override for one or both settings. Only the keys present in
+   * `patch` are written, so saving the VAT rate never disturbs a
+   * previously-saved currency (and vice versa). Passing a key with value
+   * `null` explicitly clears that override back to "use moduleOptions" -
+   * that is a real, intended action, not the same thing as omitting the key.
+   */
+  async updateSettings(patch: ProductCostsSettingsPatch): Promise<ProductCostsSettingsRow> {
+    // Ensure the singleton exists before the conditional update, so a
+    // first-ever save through the admin has a row to land on.
+    await this.getSettings();
+    await this.updateProductCostsSettings([{ id: PRODUCT_COSTS_SETTINGS_ID, ...patch }]);
+    const row = await this.readSettingsRow();
+    if (!row) {
+      throw new MedusaError(
+        MedusaError.Types.UNEXPECTED_STATE,
+        "medusa-product-costs: the settings singleton disappeared between write and read.",
+      );
+    }
+    return row;
+  }
+
+  /**
+   * The configuration every runtime read of VAT rate / currency should
+   * actually use: a persisted override from Settings > Product costs when
+   * one is saved, falling back to `moduleOptions` (the `medusa-config.ts`
+   * option, itself defaulting to 0.23 / "PLN") when it is not. This is what
+   * makes a VAT rate change in the admin take effect immediately, with no
+   * restart - every caller below resolves against this, never against
+   * `moduleOptions_` directly.
+   */
+  async getResolvedOptions(): Promise<ResolvedProductCostsModuleOptions> {
+    const settings = await this.getSettings();
+    return {
+      defaultCurrency: settings.default_currency ?? this.moduleOptions_.defaultCurrency,
+      vatRate: settings.vat_rate ?? this.moduleOptions_.vatRate,
+    };
   }
 
   /**
@@ -137,7 +245,7 @@ class ProductCostsModuleService extends MedusaService({
     // the money convention used everywhere else in this module.
     const canonicalUnitCostNet = round2(unitCostNet);
 
-    const currency = input.currency ?? this.moduleOptions_.defaultCurrency;
+    const currency = input.currency ?? (await this.getResolvedOptions()).defaultCurrency;
     const [existing] = await this.listCostPrices({ sku: [trimmedSku] }, {}, sharedContext);
     const previousVariantId = (existing?.variant_id as string | null | undefined) ?? null;
 
@@ -249,6 +357,12 @@ class ProductCostsModuleService extends MedusaService({
    * `sku` to look one up; if neither resolves to a cost, every dependent
    * figure comes back `undefined` (see `lib/economics.ts`) rather than
    * silently treating the missing cost as 0.
+   *
+   * `vatRate` resolves through `getResolvedOptions()` - a persisted override
+   * saved from Settings > Product costs, falling back to `moduleOptions` -
+   * so a VAT rate change in the admin changes this calculation on the very
+   * next call, with no restart. An explicit `input.vatRate` still wins over
+   * both, for a caller computing a one-off "what if" figure.
    */
   async computeEconomics(input: ComputeEconomicsInput): Promise<EconomicsResult> {
     let { netCost } = input;
@@ -257,11 +371,13 @@ class ProductCostsModuleService extends MedusaService({
       netCost = costPrice ? Number(costPrice.unit_cost_net) : undefined;
     }
 
+    const vatRate = input.vatRate ?? (await this.getResolvedOptions()).vatRate;
+
     return computeEconomicsPure({
       commissionRate: input.commissionRate,
       netCost,
       sellingPrice: input.sellingPrice,
-      vatRate: input.vatRate ?? this.moduleOptions_.vatRate,
+      vatRate,
     });
   }
 
