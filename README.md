@@ -20,9 +20,9 @@ curating a net purchase cost per SKU and deriving the numbers a pricing decision
   up next to the product in the admin - without making the variant the source of truth. The SKU
   is the durable key; if a variant is deleted and recreated, the cost is not orphaned.
 
-It ships an admin widget on the **product detail page** - the primary place a cost is set - plus a
-**Settings > Product costs** page for the plugin config and bulk CSV import, and a read-only
-cross-product cost list for browsing and audit. See "Admin UI" below.
+It ships an admin widget on the **product detail page** - the sole place a cost is set and its
+history browsed - plus a **Settings > Product costs** page for the plugin config and bulk CSV
+import. See "Admin UI" below.
 
 ## The null-propagation philosophy
 
@@ -128,39 +128,38 @@ don't mistake its absence from the admin API section below for a missing feature
 ## Admin UI
 
 The information architecture follows one rule: **per-product data lives on the product, config and
-bulk operations live in Settings**.
+bulk operations live in Settings**. There is no plugin-owned, top-level, cross-product table -
+that was tried and deliberately removed; see the TODO (admin-kit) note below for where
+cross-product browsing belongs instead.
 
-- **Product detail widget** (`product.details.after`) - the primary surface. For every variant of
-  the product it shows the SKU, an editable **net cost**, the live **gross cost** (net grossed up
-  by the configured VAT rate), and the **margin** at the variant's own sell price when one exists
-  in the configured currency. Gross, margin, net income and break-even are all computed with the
-  module's own `computeEconomics`, so the widget never disagrees with the server. Saving writes
-  through the same API the importer uses, and each SKU's full change **history** is one click away
-  in a drawer. Gross cost doubles as the break-even sell price here, because the plugin applies no
-  channel commission of its own.
+- **Product detail widget** (`product.details.after`) - the sole surface for a single product's
+  costs, and the only place a cost is edited. For every variant of the product it shows the SKU, an
+  editable **net cost**, the live **gross cost** (net grossed up by the configured VAT rate), and
+  the **margin** at the variant's own sell price when one exists in the configured currency. Gross,
+  margin, net income and break-even are all computed with the module's own `computeEconomics`, so
+  the widget never disagrees with the server. Saving writes through the same API the importer uses,
+  and each SKU's full change **history** is one click away in a drawer - this is the only history
+  browser this plugin ships. Gross cost doubles as the break-even sell price here, because the
+  plugin applies no channel commission of its own.
 - **Settings > Product costs** (`routes/settings/product-costs`) - the plugin **configuration**
   (resolved `vatRate` and `defaultCurrency`, read-only, sourced from `medusa-config.ts`) and the
   **bulk `sku,cost` CSV import**, plus the variant-link **resync** maintenance action. This is the
   home for everything store-wide; nothing here is per-product.
-- **Product costs** top-level route (`routes/product-costs`) - a **read-only** cross-product list
-  for search and audit. Editing a single cost happens on that product's detail page; this list no
-  longer hosts the import (that moved to Settings). It is a secondary browse view, not the way you
-  set a cost.
 
 What Medusa does and does not allow here: the admin exposes widget **zones** on the product detail
 page (`product.details.before/after`, `product.details.side.*`), which is what the cost widget uses.
 It does **not** allow injecting a custom **column** into the core products data table, so there is
-no "cost" column while browsing all products - the per-product widget and the cross-product list
-cover that need instead.
+no "cost" column while browsing all products in this plugin's own admin UI - see the TODO
+(admin-kit) note below for the intended cross-product surface.
 
 **TODO (admin-kit):** `@zanreal/medusa-admin-kit` - a separate shared package, built independently
 of this plugin - is planned to ship an extensible products list that other plugins register
 columns into. Once that package exists, this plugin should register a "cost/margin" column with
-it instead of relying on the read-only cross-product list above for cross-catalog browsing. Do
-not build a competing products list in this plugin while that is pending; the standalone
-`routes/product-costs` list stays a secondary, browse-only surface until the admin-kit column
-lands, at which point it should be re-evaluated (kept as an audit view, or retired in favor of the
-admin-kit column).
+it. That column is the only cross-product cost surface this plugin is meant to have, and it is
+opt-in via the shared admin-kit view - not a plugin-owned table. An earlier revision of this
+plugin shipped a top-level "Product costs" route with a read-only cross-product list; it has been
+removed (per-product data belongs on the product, full stop) and will not come back once the
+admin-kit column ships.
 
 ## Admin API
 
@@ -420,8 +419,8 @@ SKU below the price at which it stops making money. That consumer does not exist
 is built so it can.
 
 **Admin-kit column.** `@zanreal/medusa-admin-kit` will provide an extensible products list that
-plugins can register columns into. When it ships, register a "cost/margin" column there instead
-of expanding the read-only `routes/product-costs` list further - see the TODO in "Admin UI" above.
+plugins can register columns into. When it ships, register a "cost/margin" column there - the
+only cross-product cost surface this plugin is meant to have - see the TODO in "Admin UI" above.
 
 **Other deferred items:**
 
