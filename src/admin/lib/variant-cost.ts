@@ -28,8 +28,8 @@ export interface CostPriceLike {
 export interface VariantCost {
   /** The variant's curated net purchase cost. */
   netCost: number;
-  /** `netCost` grossed up by the plugin's configured VAT rate. */
-  grossCost: number;
+  /** `netCost` grossed up by the plugin's configured VAT rate, or `undefined` when no rate is configured. */
+  grossCost: number | undefined;
   /** The currency the cost is recorded in. */
   currency: string;
 }
@@ -45,7 +45,8 @@ export interface VariantCost {
 export function resolveVariantCost(
   costPrices: CostPriceLike[],
   sku: string | null,
-  vatRate: number,
+  /** `null` when no VAT rate is configured: the net cost still reads true, the gross one cannot be worked out. */
+  vatRate: number | null,
 ): VariantCost | null {
   if (!sku) {
     return null;
@@ -58,7 +59,7 @@ export function resolveVariantCost(
   const netCost = round2(match.unit_cost_net);
   return {
     currency: match.currency,
-    grossCost: grossFromNet(netCost, vatRate),
+    grossCost: vatRate === null ? undefined : grossFromNet(netCost, vatRate),
     netCost,
   };
 }

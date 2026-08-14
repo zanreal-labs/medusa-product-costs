@@ -11,8 +11,10 @@ import { formatAmount, formatPercent, parseInputCost, resolveVariantPrice } from
 import { sdk } from "../lib/sdk";
 
 interface ConfigResponse {
-  vatRate: number;
-  defaultCurrency: string;
+  /** `null` when no VAT rate is configured - this plugin ships no default one. */
+  vatRate: number | null;
+  /** `null` when no default currency is configured - this plugin ships no default one. */
+  defaultCurrency: string | null;
 }
 
 interface CostPriceDTO {
@@ -129,9 +131,11 @@ const ProductCostWidget = ({ data }: DetailWidgetProps<AdminProduct>) => {
         variants.map((variant) => {
           const existing = variant.sku ? bySku.get(variant.sku) : undefined;
           return {
-            currency: existing?.currency ?? configRes.defaultCurrency,
+            currency: existing?.currency ?? configRes.defaultCurrency ?? "",
             saving: false,
-            sellingPrice: resolveVariantPrice(variant.prices, configRes.defaultCurrency),
+            sellingPrice: configRes.defaultCurrency
+              ? resolveVariantPrice(variant.prices, configRes.defaultCurrency)
+              : undefined,
             sku: variant.sku ?? "",
             unitCostNet: existing ? String(existing.unit_cost_net) : "",
             variantId: variant.id,
@@ -235,7 +239,8 @@ const ProductCostWidget = ({ data }: DetailWidgetProps<AdminProduct>) => {
         </div>
         {config ? (
           <Text className="text-ui-fg-subtle" size="small">
-            VAT {Math.round(config.vatRate * 100)}% · {config.defaultCurrency}
+            {config.vatRate === null ? "VAT not set" : `VAT ${Math.round(config.vatRate * 100)}%`} ·{" "}
+            {config.defaultCurrency ?? "currency not set"}
           </Text>
         ) : null}
       </div>
@@ -265,13 +270,17 @@ const ProductCostWidget = ({ data }: DetailWidgetProps<AdminProduct>) => {
           ) : (
             rows.map((row) => {
               const netCost = parseInputCost(row.unitCostNet);
-              const econ = config
-                ? computeEconomics({
-                    netCost,
-                    sellingPrice: row.sellingPrice,
-                    vatRate: config.vatRate,
-                  })
-                : {};
+              // No VAT rate configured means no honest gross or margin to show.
+              // Every dependent figure stays blank rather than being computed
+              // off a rate this plugin would have had to invent.
+              const econ =
+                config && config.vatRate !== null
+                  ? computeEconomics({
+                      netCost,
+                      sellingPrice: row.sellingPrice,
+                      vatRate: config.vatRate,
+                    })
+                  : {};
               const marginKnown = econ.marginPct !== undefined;
               return (
                 <Table.Row key={row.variantId}>

@@ -1,5 +1,6 @@
 import { defineRouteConfig } from "@medusajs/admin-sdk";
 import {
+  Alert,
   Button,
   Container,
   Heading,
@@ -14,27 +15,29 @@ import { useEffect, useMemo, useState } from "react";
 import { sdk } from "../../../lib/sdk";
 
 interface ConfigResponse {
-  vatRate: number;
-  defaultCurrency: string;
-  /** Whether `vatRate` above came from a persisted override, not the `medusa-config.ts` default. */
+  /** `null` when no VAT rate is configured anywhere - the plugin ships no default one. */
+  vatRate: number | null;
+  /** `null` when no currency is configured anywhere - the plugin ships no default one. */
+  defaultCurrency: string | null;
+  /** Whether `vatRate` above came from a value saved here rather than from the plugin's own options. */
   vatRateOverridden: boolean;
-  /** Whether `defaultCurrency` above came from a persisted override, not the `medusa-config.ts` default. */
+  /** Whether `defaultCurrency` above came from a value saved here rather than from the plugin's own options. */
   defaultCurrencyOverridden: boolean;
 }
 
 /**
- * Currencies offered in the dropdown. Not exhaustive - just the common ones
- * around the market this plugin was built for - so the Select always has
+ * Currencies offered in the dropdown. Not exhaustive, and not a
+ * recommendation - just enough common codes that the Select always has
  * something to show. Whatever currency the store is actually configured
  * with is added to this list at render time if it is not already in it (see
  * `currencyOptions` below), so the Select never has to fall back to an
  * empty/placeholder selection for a valid, already-saved value.
  */
 const COMMON_CURRENCIES = [
-  "PLN",
   "EUR",
   "USD",
   "GBP",
+  "PLN",
   "CZK",
   "SEK",
   "NOK",
@@ -114,8 +117,11 @@ const ProductCostsSettingsPage = () => {
 
   const applyConfig = (res: ConfigResponse) => {
     setConfig(res);
-    setVatRateInput(formatVatPercent(res.vatRate));
-    setCurrencyInput(res.defaultCurrency);
+    // A null here means "not configured anywhere", which is a blank field, not
+    // a number or a code to render. Filling something in would be this page
+    // inventing the very setting it is asking the operator to choose.
+    setVatRateInput(res.vatRate === null ? "" : formatVatPercent(res.vatRate));
+    setCurrencyInput(res.defaultCurrency ?? "");
   };
 
   // Runs once on mount - `applyConfig` is stable across renders (it only
@@ -145,7 +151,7 @@ const ProductCostsSettingsPage = () => {
     }
     const currency = currencyInput.trim().toUpperCase();
     if (!/^[A-Z]{3}$/.test(currency)) {
-      toast.error('Enter a 3-letter currency code, e.g. "PLN".');
+      toast.error("Pick a 3-letter currency code.");
       return;
     }
     setSavingConfig(true);
@@ -173,7 +179,9 @@ const ProductCostsSettingsPage = () => {
         method: "POST",
       });
       applyConfig(res);
-      toast.success("Reset to the medusa-config.ts default.");
+      toast.success(
+        "Cleared. Both settings fall back to whatever this plugin was installed with, and are unset if it was installed with neither.",
+      );
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not reset the configuration.");
     } finally {
@@ -254,16 +262,30 @@ const ProductCostsSettingsPage = () => {
               size="small"
               variant="secondary"
             >
-              Reset to plugin default
+              Clear saved values
             </Button>
           ) : null}
         </div>
         <Text className="text-ui-fg-subtle mb-3" size="small">
-          The VAT rate and default currency every gross-cost and margin calculation in this plugin
-          uses. Saving here takes effect immediately, with no backend restart - it overrides the
-          <code> vatRate</code>/<code>defaultCurrency</code> options in{" "}
-          <code>medusa-config.ts</code> until you reset it.
+          The VAT rate and default currency every gross-cost, margin and break-even figure in this
+          plugin is worked out from. Saving here takes effect immediately, with no backend restart,
+          and wins over whatever the plugin was installed with until you clear it.
         </Text>
+        <Text className="text-ui-fg-subtle mb-3" size="small">
+          Neither has a built-in default: this plugin does not know which market you trade in, and a
+          guessed VAT rate or currency would move every figure it shows you without saying so. While
+          either is blank, the calculations that need it refuse instead of returning a number nobody
+          chose. Enter <code>0</code> as the VAT rate if your costs genuinely carry none.
+        </Text>
+        {config && (config.vatRate === null || config.defaultCurrency === null) ? (
+          <Alert className="mb-3" variant="warning">
+            {config.vatRate === null && config.defaultCurrency === null
+              ? "No VAT rate and no default currency are set yet. Gross cost, margin and break-even cannot be worked out, and a cost saved without an explicit currency is refused, until both are filled in below."
+              : config.vatRate === null
+                ? "No VAT rate is set yet, so gross cost, margin and break-even cannot be worked out. Fill it in below - enter 0 if your costs carry no VAT."
+                : "No default currency is set yet, so a cost saved without an explicit currency is refused. Fill it in below."}
+          </Alert>
+        ) : null}
         {config ? (
           <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
             <div className="flex flex-col gap-y-1">
@@ -274,7 +296,7 @@ const ProductCostsSettingsPage = () => {
                 autoComplete="off"
                 id="product-costs-vat-rate"
                 onChange={(event) => setVatRateInput(event.target.value)}
-                placeholder="23"
+                placeholder="e.g. 20"
                 value={vatRateInput}
               />
             </div>

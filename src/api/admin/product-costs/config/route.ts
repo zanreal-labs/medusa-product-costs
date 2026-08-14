@@ -17,11 +17,15 @@ const WRITABLE_KEYS = new Set(["vat_rate", "default_currency"]);
  * GET /admin/product-costs/config
  *
  * The RESOLVED configuration (`vatRate`, `defaultCurrency`) the rest of the
- * plugin actually computes with: a persisted override saved from this same
- * Settings page when one exists, falling back to the plugin's
- * `medusa-config.ts` options otherwise. The admin UI (this page and the
- * product detail widget) uses this to compute a gross-cost preview that
- * always matches what the server itself would compute.
+ * plugin actually computes with: a value saved from this same Settings page
+ * when one exists, falling back to the plugin's own options otherwise. The
+ * admin UI (this page and the product detail widget) uses this to compute a
+ * gross-cost preview that always matches what the server itself would compute.
+ *
+ * Either field can be `null`, meaning "configured nowhere". This plugin ships
+ * no default VAT rate and no default currency, so `null` must reach the UI
+ * intact: it is what tells the Settings page to render a blank field and a
+ * warning instead of a number nobody chose.
  */
 export async function GET(req: MedusaRequest, res: MedusaResponse): Promise<void> {
   const service: ProductCostsModuleService = req.scope.resolve(PRODUCT_COSTS_MODULE);
@@ -46,8 +50,10 @@ interface ConfigPatchBody {
  * Persists an override for one or both settings: `{ vat_rate?, default_currency? }`.
  * Only the keys present in the body are written, so saving the VAT rate
  * never disturbs a previously-saved currency (and vice versa). Passing a key
- * as `null` explicitly clears that override back to the `medusa-config.ts`
- * default - a real, intended action, not the same thing as omitting the key.
+ * as `null` explicitly clears that override back to the plugin's own option -
+ * a real, intended action, not the same thing as omitting the key. When the
+ * plugin was installed without that option either, clearing it leaves the
+ * setting genuinely unset, and the operations needing it refuse.
  *
  * Once saved, every runtime computation that reads VAT rate or currency
  * (`computeEconomics`, the default currency on a new `CostPrice`) picks up
@@ -105,7 +111,7 @@ export async function POST(req: MedusaRequest, res: MedusaResponse): Promise<voi
       const normalized = body.default_currency.trim().toUpperCase();
       if (!CURRENCY_CODE_RE.test(normalized)) {
         res.status(400).json({
-          message: 'default_currency must be a 3-letter ISO-4217 code, e.g. "PLN"',
+          message: "default_currency must be a 3-letter ISO-4217 code",
         });
         return;
       }

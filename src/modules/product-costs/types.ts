@@ -3,33 +3,56 @@ export type CostSource = "manual" | "csv" | "api";
 /**
  * Plugin-wide options, forwarded by Medusa to every module the plugin
  * declares (see `plugins: [{ resolve: "@zanreal/medusa-product-costs",
- * options: {...} }]` in the consuming app's medusa-config.ts).
+ * options: {...} }]` in the consuming app's plugin configuration).
+ *
+ * Both fields are optional here and BOTH ARE WITHOUT A DEFAULT. Neither one
+ * is knowable from the outside: a VAT rate and a trading currency are facts
+ * about the market a specific store sells in, and this plugin has no way to
+ * infer either. An operator sets them once from Settings > Product costs, or
+ * here; until then the operations that need them refuse rather than guess.
  */
 export interface ProductCostsModuleOptions {
   /**
-   * VAT rate applied when grossing up a net cost, as a fraction (0.23 =
-   * 23%). Defaults to 0.23 (the PLN market rate this plugin was built
-   * against) - override it for other markets.
+   * VAT rate applied when grossing up a net cost, as a fraction (0.23 = 23%,
+   * 0 = none).
+   *
+   * No default: this number flows into gross cost, margin and break-even, so
+   * a guessed one understates or overstates the price a store must not sell
+   * below, quietly and in the store's own admin. Set the rate for the market
+   * you actually trade in.
    */
   vatRate?: number;
-  /** Currency used for a cost when the caller does not specify one. */
+  /**
+   * ISO-4217 currency a cost is recorded in when the caller does not name one.
+   *
+   * No default: a guessed currency silently mislabels every stored cost, and
+   * nothing downstream can tell a mislabelled row from a correct one.
+   */
   defaultCurrency?: string;
 }
 
 export interface ResolvedProductCostsModuleOptions {
-  vatRate: number;
-  defaultCurrency: string;
+  /** `null` when no VAT rate is configured. Not a value to compute with - see `VAT_RATE_NOT_CONFIGURED_MESSAGE`. */
+  vatRate: number | null;
+  /** `null` when no currency is configured. Not a value to store - see `CURRENCY_NOT_CONFIGURED_MESSAGE`. */
+  defaultCurrency: string | null;
 }
 
-export const DEFAULT_VAT_RATE = 0.23;
-export const DEFAULT_CURRENCY = "PLN";
+/** The one message every "no VAT rate configured" refusal uses, so they cannot drift apart. */
+export const VAT_RATE_NOT_CONFIGURED_MESSAGE =
+  "No VAT rate is configured, so gross cost, margin and break-even cannot be worked out. Set one under Settings > Product costs (enter 0 if your costs carry no VAT). This plugin ships without a default rate on purpose - it does not know which market you trade in, and a guessed rate would quietly move every break-even figure it shows you.";
+
+/** The one message every "no default currency configured" refusal uses. */
+export const CURRENCY_NOT_CONFIGURED_MESSAGE =
+  "No default currency is configured, so this cost cannot be stored without guessing what its number means. Set one under Settings > Product costs, or pass an explicit currency with the cost. This plugin ships without a default currency on purpose - a wrong one mislabels every stored cost, and nothing downstream can tell the difference afterwards.";
 
 export function resolveModuleOptions(
   options?: ProductCostsModuleOptions,
 ): ResolvedProductCostsModuleOptions {
+  const currency = options?.defaultCurrency?.trim().toUpperCase();
   return {
-    defaultCurrency: options?.defaultCurrency ?? DEFAULT_CURRENCY,
-    vatRate: options?.vatRate ?? DEFAULT_VAT_RATE,
+    defaultCurrency: currency ? currency : null,
+    vatRate: typeof options?.vatRate === "number" ? options.vatRate : null,
   };
 }
 

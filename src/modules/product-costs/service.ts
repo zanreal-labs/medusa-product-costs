@@ -27,7 +27,11 @@ import type {
   ResolvedProductCostsModuleOptions,
   UpsertCostInput,
 } from "./types";
-import { resolveModuleOptions } from "./types";
+import {
+  CURRENCY_NOT_CONFIGURED_MESSAGE,
+  VAT_RATE_NOT_CONFIGURED_MESSAGE,
+  resolveModuleOptions,
+} from "./types";
 
 /**
  * Fixed primary key for the settings singleton - see `ProductCostsSettings`
@@ -177,12 +181,17 @@ class ProductCostsModuleService extends MedusaService({
 
   /**
    * The configuration every runtime read of VAT rate / currency should
-   * actually use: a persisted override from Settings > Product costs when
-   * one is saved, falling back to `moduleOptions` (the `medusa-config.ts`
-   * option, itself defaulting to 0.23 / "PLN") when it is not. This is what
+   * actually use: a persisted override from Settings > Product costs when one
+   * is saved, falling back to the plugin options when it is not. This is what
    * makes a VAT rate change in the admin take effect immediately, with no
    * restart - every caller below resolves against this, never against
    * `moduleOptions_` directly.
+   *
+   * Either field can come back `null`, meaning "configured nowhere". That is
+   * not a value to compute or store with: this plugin ships no default VAT
+   * rate and no default currency, because both are facts about the market a
+   * store trades in and a guess at either is wrong silently. Callers that
+   * need one refuse and name the setting instead.
    */
   async getResolvedOptions(): Promise<ResolvedProductCostsModuleOptions> {
     const settings = await this.getSettings();
@@ -246,6 +255,9 @@ class ProductCostsModuleService extends MedusaService({
     const canonicalUnitCostNet = round2(unitCostNet);
 
     const currency = input.currency ?? (await this.getResolvedOptions()).defaultCurrency;
+    if (!currency) {
+      throw new MedusaError(MedusaError.Types.NOT_ALLOWED, CURRENCY_NOT_CONFIGURED_MESSAGE);
+    }
     const [existing] = await this.listCostPrices({ sku: [trimmedSku] }, {}, sharedContext);
     const previousVariantId = (existing?.variant_id as string | null | undefined) ?? null;
 
@@ -359,10 +371,15 @@ class ProductCostsModuleService extends MedusaService({
    * silently treating the missing cost as 0.
    *
    * `vatRate` resolves through `getResolvedOptions()` - a persisted override
-   * saved from Settings > Product costs, falling back to `moduleOptions` -
+   * saved from Settings > Product costs, falling back to the plugin options -
    * so a VAT rate change in the admin changes this calculation on the very
    * next call, with no restart. An explicit `input.vatRate` still wins over
    * both, for a caller computing a one-off "what if" figure.
+   *
+   * Refuses when no rate resolves from anywhere. Returning a figure computed
+   * off a guessed rate would be worse than an error: a break-even number is
+   * read as authoritative, and nothing on screen would reveal that the rate
+   * behind it was invented.
    */
   async computeEconomics(input: ComputeEconomicsInput): Promise<EconomicsResult> {
     let { netCost } = input;
@@ -372,6 +389,9 @@ class ProductCostsModuleService extends MedusaService({
     }
 
     const vatRate = input.vatRate ?? (await this.getResolvedOptions()).vatRate;
+    if (vatRate === null) {
+      throw new MedusaError(MedusaError.Types.NOT_ALLOWED, VAT_RATE_NOT_CONFIGURED_MESSAGE);
+    }
 
     return computeEconomicsPure({
       commissionRate: input.commissionRate,

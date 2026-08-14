@@ -30,8 +30,10 @@ import { sdk } from "../lib/sdk";
  */
 
 interface ConfigResponse {
-  vatRate: number;
-  defaultCurrency: string;
+  /** `null` when no VAT rate is configured - this plugin ships no default one. */
+  vatRate: number | null;
+  /** `null` when no default currency is configured - this plugin ships no default one. */
+  defaultCurrency: string | null;
 }
 
 /**
@@ -82,7 +84,9 @@ registerVariantColumn<CatalogProduct, VariantCost | null>({
       <div className="flex flex-col">
         <Text size="small">{formatVariantCost(cost)}</Text>
         <Text className="text-ui-fg-muted" size="xsmall">
-          {cost.grossCost.toFixed(2)} incl. VAT
+          {cost.grossCost === undefined
+            ? "no VAT rate set"
+            : `${cost.grossCost.toFixed(2)} incl. VAT`}
         </Text>
       </div>
     );

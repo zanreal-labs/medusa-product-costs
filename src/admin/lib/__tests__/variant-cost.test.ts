@@ -56,3 +56,17 @@ describe("formatVariantCost", () => {
     expect(formatVariantCost({ currency: "EUR", grossCost: 12.3, netCost: 10 })).toBe("10.00 EUR");
   });
 });
+
+describe("resolveVariantCost without a configured VAT rate", () => {
+  it("still reports the net cost but leaves the gross one unknown", () => {
+    // The net cost is a stored fact. The gross one is derived from a VAT rate
+    // this plugin ships no default for, so with none configured there is
+    // nothing honest to show - `undefined`, never a silently un-grossed number.
+    const cost = resolveVariantCost(
+      [{ currency: "GBP", sku: "SKU-1", unit_cost_net: 10 }],
+      "SKU-1",
+      null,
+    );
+    expect(cost).toEqual({ currency: "GBP", grossCost: undefined, netCost: 10 });
+  });
+});

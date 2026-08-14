@@ -41,9 +41,10 @@ figure comes back `undefined` (`null` over the wire) - never `0`, never a guess.
 - `commissionRate` is the one input with a real default: omit it and it is treated as `0`, because
   "no commission" is a legitimate, common case (a lot of the SKUs this plugin was built for are
   sold direct with no marketplace cut) - not a missing input.
-- `vatRate` is not a "missing input" either: it is a plugin option, configured once for the store
-  it runs in, with a documented default of `0.23`. A rate the plugin is explicitly configured to
-  default is not the same thing as a business fact (a cost, a price) that nobody entered.
+- `vatRate` is a store-wide setting, configured once for the market this plugin runs in. It has
+  **no default**: an unconfigured rate is a missing input like any other, and `computeEconomics`
+  refuses rather than returning a break-even figure worked out from a rate nobody chose. Configure
+  `0` if your costs genuinely carry no VAT - that is an answer, and it is recorded as one.
 
 Every money amount is a decimal rounded half-up to 2 places (see `round2` in
 `src/modules/product-costs/lib/money.ts`). `marginPct` is the one exception - it is left as an
@@ -72,8 +73,10 @@ export default defineConfig({
     {
       resolve: "@zanreal/medusa-product-costs",
       options: {
-        vatRate: 0.23,
-        defaultCurrency: "PLN",
+        // Neither has a default. Set them here, or leave them out and set
+        // them once in Settings > Product costs instead.
+        vatRate: 0.2,
+        defaultCurrency: "EUR",
       },
     },
   ],
@@ -90,8 +93,27 @@ npx medusa db:migrate
 
 | Option            | Type     | Default | Description                                                       |
 | ----------------- | -------- | ------- | ----------------------------------------------------------------- |
-| `vatRate`         | `number` | `0.23`  | VAT rate as a fraction, used to gross up a net cost.              |
-| `defaultCurrency` | `string` | `"PLN"` | Currency recorded on a cost when the caller does not specify one. |
+| `vatRate`         | `number` | none    | VAT rate as a fraction (`0.2` = 20%, `0` = none), used to gross up a net cost. **No default** - see below. |
+| `defaultCurrency` | `string` | none    | ISO-4217 currency recorded on a cost when the caller does not specify one. **No default** - see below. |
+
+### No default VAT rate and no default currency
+
+Neither option ships with a default, on purpose. A VAT rate and a trading currency are facts about
+the market a specific store sells in, and this plugin cannot infer either. A guessed VAT rate moves
+every gross-cost, margin and break-even figure the admin shows, silently and in the store's own
+numbers; a guessed currency mislabels every stored cost with nothing downstream able to tell.
+
+So instead of guessing:
+
+- `computeEconomics` refuses, naming the setting and pointing at **Settings > Product costs**, when
+  no VAT rate resolves from anywhere.
+- `upsertCost` refuses, the same way, when a cost carries no explicit currency and no default one is
+  configured. Passing `currency` explicitly always works regardless.
+- The Settings page renders blank fields plus a warning, and the product widget shows "VAT not set"
+  with the gross column blank, rather than a number nobody chose.
+
+Set them once from **Settings > Product costs** (no restart, no file to edit) or as the options
+above.
 
 Both are per-store, not per-cost: every `CostPrice` row does still carry its own `currency`
 column, but the VAT rate used in a margin calculation is always the store-wide setting (or an
@@ -195,8 +217,9 @@ writes through `POST /admin/product-costs/config` (see "Admin API" below).
 
 `ProductCostsModuleService.getResolvedOptions()` is what everything else reads: it returns the
 persisted override for a field when one is saved, and falls back to the `vatRate`/`defaultCurrency`
-plugin options from `medusa-config.ts` otherwise - per field, not all-or-nothing, so overriding the
-VAT rate does not force you to also override the currency. `computeEconomics` and the default
+plugin options otherwise - per field, not all-or-nothing, so overriding the VAT rate does not force
+you to also override the currency. When a field is set in neither place it resolves to `null`, which
+is not a value to compute with: the callers below refuse instead. `computeEconomics` and the default
 currency `upsertCost` applies when a caller does not specify one both resolve through this method,
 so a VAT rate saved from the admin changes every margin calculation on its very next call - no
 backend restart. `moduleOptions` (the raw `medusa-config.ts` values) is still available on the
@@ -328,8 +351,8 @@ or the plugin default, which is what the Settings page uses to show/hide "Reset 
 
 ```json
 {
-  "vatRate": 0.23,
-  "defaultCurrency": "PLN",
+  "vatRate": 0.2,
+  "defaultCurrency": "EUR",
   "vatRateOverridden": false,
   "defaultCurrencyOverridden": false
 }
@@ -347,10 +370,10 @@ page's "Reset to plugin default" button sends both keys as `null`.
 { "vat_rate": 0.19 }
 
 // Response - same shape as the GET above, reflecting the just-saved state
-{ "vatRate": 0.19, "defaultCurrency": "PLN", "vatRateOverridden": true, "defaultCurrencyOverridden": false }
+{ "vatRate": 0.19, "defaultCurrency": "EUR", "vatRateOverridden": true, "defaultCurrencyOverridden": false }
 ```
 
-`vat_rate` must be a number between `0` and `1` (a fraction, e.g. `0.23` for 23%) or `null`.
+`vat_rate` must be a number between `0` and `1` (a fraction, e.g. `0.2` for 20%) or `null`.
 `default_currency` must be a 3-letter ISO-4217 code (case-insensitive, uppercased on save) or
 `null`. An unknown key, or a body with no writable key at all, is rejected with `400` rather than
 silently ignored.

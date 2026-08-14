@@ -27,11 +27,26 @@ import ProductCostsModuleService from "../service";
  */
 const fakeTransactionManager = { __fake: "transaction-manager" };
 
-function createService(options?: ConstructorParameters<typeof ProductCostsModuleService>[1]) {
+/**
+ * Build a service under test.
+ *
+ * Defaults to a CONFIGURED install - a VAT rate and a currency explicitly
+ * chosen - because that is the only state in which most of this module does
+ * anything. The plugin ships neither as a default (see
+ * `ProductCostsModuleOptions`), so a test that wants ordinary behaviour has to
+ * choose them, exactly like an operator does. Pass `null` to build the
+ * unconfigured install instead and exercise the refusals.
+ */
+function createService(
+  options: ConstructorParameters<typeof ProductCostsModuleService>[1] | null = {
+    defaultCurrency: "PLN",
+    vatRate: 0.23,
+  },
+) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const service = new (ProductCostsModuleService as any)(
     {},
-    options,
+    options ?? undefined,
   ) as ProductCostsModuleService & {
     listCostPrices: ReturnType<typeof vi.fn>;
     createCostPrices: ReturnType<typeof vi.fn>;
@@ -72,14 +87,62 @@ function createService(options?: ConstructorParameters<typeof ProductCostsModule
 }
 
 describe("ProductCostsModuleService.moduleOptions", () => {
-  it("defaults vatRate to 0.23 and currency to PLN", () => {
-    const service = createService();
-    expect(service.moduleOptions).toEqual({ defaultCurrency: "PLN", vatRate: 0.23 });
+  it("defaults neither the VAT rate nor the currency", () => {
+    // The regression this guards: shipping 0.23/"PLN" told every installer
+    // this plugin trades in Poland, and quietly moved gross cost, margin and
+    // break-even for anyone who does not.
+    const service = createService(null);
+    expect(service.moduleOptions).toEqual({ defaultCurrency: null, vatRate: null });
   });
 
   it("honors options passed by the consuming app", () => {
     const service = createService({ defaultCurrency: "EUR", vatRate: 0.19 });
     expect(service.moduleOptions).toEqual({ defaultCurrency: "EUR", vatRate: 0.19 });
+  });
+
+  it("keeps an explicit zero VAT rate, which is a real answer and not an absent one", () => {
+    const service = createService({ defaultCurrency: "GBP", vatRate: 0 });
+    expect(service.moduleOptions).toEqual({ defaultCurrency: "GBP", vatRate: 0 });
+  });
+
+  it("normalizes a configured currency to upper case", () => {
+    const service = createService({ defaultCurrency: "eur", vatRate: 0.19 });
+    expect(service.moduleOptions.defaultCurrency).toBe("EUR");
+  });
+});
+
+describe("ProductCostsModuleService without a configured VAT rate or currency", () => {
+  it("refuses to compute economics, naming the setting and where to set it", async () => {
+    const service = createService(null);
+    await expect(service.computeEconomics({ netCost: 100, sellingPrice: 200 })).rejects.toThrow(
+      /No VAT rate is configured.*Settings > Product costs/su,
+    );
+  });
+
+  it("refuses to store a cost that carries no explicit currency", async () => {
+    const service = createService(null);
+    await expect(
+      service.upsertCost("SKU-1", 10, { source: "manual" }),
+    ).rejects.toThrow(/No default currency is configured.*Settings > Product costs/su);
+  });
+
+  it("still stores a cost when the caller names the currency itself", async () => {
+    const service = createService(null);
+    service.listCostPrices.mockResolvedValue([]);
+    service.createCostPrices.mockResolvedValue({
+      created_at: new Date(),
+      currency: "GBP",
+      id: "cprc_1",
+      note: null,
+      sku: "SKU-1",
+      source: "manual",
+      unit_cost_net: 10,
+      updated_at: new Date(),
+      variant_id: null,
+    });
+    await expect(
+      service.upsertCost("SKU-1", 10, { currency: "GBP", source: "manual" }),
+    ).resolves.toBeDefined();
   });
 });
 
@@ -550,7 +613,7 @@ describe("ProductCostsModuleService settings singleton", () => {
     withPersistedSettingsStore(service);
 
     // Before any save: computeEconomics falls back to the moduleOptions VAT
-    // rate configured in medusa-config.ts (0.23 = 23%).
+    // rate configured in the plugin options (0.23 = 23%).
     const before = await service.computeEconomics({ netCost: 100 });
     expect(before.grossCost).toBe(123);
 
