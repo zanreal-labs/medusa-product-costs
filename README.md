@@ -146,25 +146,45 @@ cross-product browsing belongs instead.
   and each SKU's full change **history** is one click away in a drawer - this is the only history
   browser this plugin ships. Gross cost doubles as the break-even sell price here, because the
   plugin applies no channel commission of its own.
+
+  **It fetches its own variants, and must.** The dashboard loads the product for this zone with
+  `PRODUCT_DETAIL_FIELDS = getLinkedFields("product", "*categories,*shipping_profile,-variants")`
+  (`@medusajs/dashboard/src/routes/products/product-detail/constants.ts`). That `-variants` is an
+  explicit exclusion - the page fetches the variant table separately with `useProductVariants` -
+  so `data.variants` handed to a `product.details.*` widget is `undefined`. This widget used to
+  early-return `null` on an empty variant list, which meant it rendered nothing on every product,
+  on every store. It was blamed on a stale admin bundle at the time; it was not, and no rebuild
+  would have fixed it. The widget now calls
+  `sdk.admin.product.listVariants(productId, { fields: "id,title,sku,*prices" })` itself, the same
+  way the dashboard's own variant section does, and still prefers `data.variants` if a future
+  dashboard version starts passing it.
 - **Settings > Product costs** (`routes/settings/product-costs`) - the plugin **configuration**
   (an editable **VAT rate** and **default currency**, with a Save action - see "Persisted settings"
   below) and the **bulk `sku,cost` CSV import**, plus the variant-link **resync** maintenance
   action. This is the home for everything store-wide; nothing here is per-product.
 
+- **Catalog column** (`src/admin/widgets/register-variant-columns.tsx`) - a `Cost` column
+  registered into `@zanreal/medusa-admin-kit`'s Catalog route, which lists **one variant per row**.
+  The cell shows that variant's actual net cost and its gross underneath, or a muted "not costed".
+  It is the only cross-product cost surface this plugin has, and it is opt-in: a store that has not
+  installed admin-kit never sees it, and this plugin ships no competing table of its own.
+
+  It used to show `"12/13 costed"`, a coverage ratio, because an admin-kit row was a product and a
+  product has many variants and therefore many costs. Now a row is one variant, so it has one cost,
+  and the column shows the cost. The registration moved from `registerProductColumn` to
+  `registerVariantColumn`, the column id from `product-costs.margin` to `product-costs.cost` (it
+  was never a margin - margin needs a sell price the Catalog query does not fetch), and the
+  variant-level roll-up in `src/admin/lib` is gone: `summarizeCostStatus` / `formatCostStatus`
+  became `resolveVariantCost` / `formatVariantCost`.
+
 What Medusa does and does not allow here: the admin exposes widget **zones** on the product detail
 page (`product.details.before/after`, `product.details.side.*`), which is what the cost widget uses.
-It does **not** allow injecting a custom **column** into the core products data table, so there is
-no "cost" column while browsing all products in this plugin's own admin UI - see the TODO
-(admin-kit) note below for the intended cross-product surface.
+It does **not** allow injecting a custom **column** into the core products data table - that is the
+entire reason admin-kit's parallel Catalog route exists.
 
-**TODO (admin-kit):** `@zanreal/medusa-admin-kit` - a separate shared package, built independently
-of this plugin - is planned to ship an extensible products list that other plugins register
-columns into. Once that package exists, this plugin should register a "cost/margin" column with
-it. That column is the only cross-product cost surface this plugin is meant to have, and it is
-opt-in via the shared admin-kit view - not a plugin-owned table. An earlier revision of this
-plugin shipped a top-level "Product costs" route with a read-only cross-product list; it has been
-removed (per-product data belongs on the product, full stop) and will not come back once the
-admin-kit column ships.
+An earlier revision of this plugin shipped a top-level "Product costs" route with a read-only
+cross-product list; it was removed (per-product data belongs on the product, full stop) and the
+admin-kit column replaced it.
 
 ## Persisted settings
 
@@ -483,9 +503,11 @@ from this plugin as the floor for automated price changes - never let an automat
 SKU below the price at which it stops making money. That consumer does not exist yet; this plugin
 is built so it can.
 
-**Admin-kit column.** `@zanreal/medusa-admin-kit` will provide an extensible products list that
-plugins can register columns into. When it ships, register a "cost/margin" column there - the
-only cross-product cost surface this plugin is meant to have - see the TODO in "Admin UI" above.
+**Margin in the Catalog column.** The Catalog column shows cost, not margin, because margin needs
+each variant's sell price and admin-kit's `VARIANT_LIST_FIELDS` does not request prices. Adding a
+second per-row fetch would double the request count of every installed catalogue for a figure the
+product detail widget already shows against the real price. If admin-kit ever lets a contributor
+extend the row query, this is the first thing to revisit.
 
 **Other deferred items:**
 
