@@ -1,27 +1,32 @@
 import { defineWidgetConfig } from "@medusajs/admin-sdk";
-import { registerProductColumn } from "@zanreal/medusa-admin-kit";
-import type { ProductColumnProduct } from "@zanreal/medusa-admin-kit";
-import { StatusBadge, Text } from "@medusajs/ui";
-import { formatCostStatus, summarizeCostStatus } from "../lib/cost-status";
-import type { CostPriceLike, CostStatusSummary } from "../lib/cost-status";
+import { Text } from "@medusajs/ui";
+import { registerVariantColumn } from "@zanreal/medusa-admin-kit";
+import type { CatalogProduct } from "@zanreal/medusa-admin-kit";
+import { formatVariantCost, resolveVariantCost } from "../lib/variant-cost";
+import type { CostPriceLike, VariantCost } from "../lib/variant-cost";
 import { sdk } from "../lib/sdk";
 
 /**
- * Registers the per-product cost-coverage column in the shared, extensible
- * products list (`@zanreal/medusa-admin-kit`'s Catalog route).
+ * Registers the per-variant cost column in the shared, extensible catalogue
+ * list (`@zanreal/medusa-admin-kit`'s Catalog route).
  *
  * This call must live at the top level of this file - not in the component
  * body, not in an effect - because the admin build statically imports every
  * widget into `virtual:medusa/widgets`, which the dashboard evaluates once at
- * boot. `registerProductColumn` runs then, strictly before anyone can
+ * boot. `registerVariantColumn` runs then, strictly before anyone can
  * navigate to Catalog, so the column is always present by the time that
  * route's table reads the registry. See the admin-kit README's "contributor
  * contract" for the full explanation of why this is not optional.
  *
- * The lookup is a network call keyed by the row's SKUs, so it goes through
+ * The lookup is a network call keyed by the row's SKU, so it goes through
  * `loadData` rather than `cell`: the Catalog table renders immediately with
- * this column showing its loading state, then re-renders once the cost rows
- * for that row's SKUs resolve. A product with no SKUs never hits the network.
+ * this column showing its loading state, then re-renders once that SKU's cost
+ * resolves. A variant with no SKU never hits the network.
+ *
+ * The cell shows the variant's actual net cost. It used to show a coverage
+ * ratio ("12/13 costed") because a row was a product and a product has many
+ * costs; a row is now one variant, so it has one cost, and that is what a cost
+ * column should say.
  */
 
 interface ConfigResponse {
@@ -49,7 +54,7 @@ function loadConfig(): Promise<ConfigResponse> {
   return configPromise;
 }
 
-registerProductColumn<ProductColumnProduct, CostStatusSummary>({
+registerVariantColumn<CatalogProduct, VariantCost | null>({
   cell: (_ctx, async) => {
     if (!async || async.isLoading) {
       return (
@@ -59,36 +64,42 @@ registerProductColumn<ProductColumnProduct, CostStatusSummary>({
       );
     }
     if (async.error) {
-      return <StatusBadge color="red">error</StatusBadge>;
+      return (
+        <Text className="text-ui-fg-error" size="small">
+          error
+        </Text>
+      );
     }
-    const summary = async.data;
-    if (!summary || summary.costedCount === 0) {
+    const cost = async.data;
+    if (!cost) {
       return (
         <Text className="text-ui-fg-muted" size="small">
           not costed
         </Text>
       );
     }
-    const fullyCosted = summary.costedCount === summary.variantCount;
     return (
-      <StatusBadge color={fullyCosted ? "green" : "orange"}>
-        {formatCostStatus(summary)}
-      </StatusBadge>
+      <div className="flex flex-col">
+        <Text size="small">{formatVariantCost(cost)}</Text>
+        <Text className="text-ui-fg-muted" size="xsmall">
+          {cost.grossCost.toFixed(2)} incl. VAT
+        </Text>
+      </div>
     );
   },
   header: "Cost",
-  id: "product-costs.margin",
+  id: "product-costs.cost",
   loadData: async (ctx) => {
-    if (ctx.skus.length === 0) {
-      return { costedCount: 0, variantCount: ctx.variantCount };
+    if (!ctx.sku) {
+      return null;
     }
     const [config, costsResponse] = await Promise.all([
       loadConfig(),
       sdk.client.fetch<{ cost_prices: CostPriceLike[] }>("/admin/product-costs", {
-        query: { limit: ctx.skus.length, sku: ctx.skus },
+        query: { limit: 1, sku: ctx.sku },
       }),
     ]);
-    return summarizeCostStatus(costsResponse.cost_prices, ctx.variantCount, config.vatRate);
+    return resolveVariantCost(costsResponse.cost_prices, ctx.sku, config.vatRate);
   },
   priority: 20,
 });

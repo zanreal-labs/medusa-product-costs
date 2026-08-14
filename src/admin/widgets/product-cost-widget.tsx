@@ -1,7 +1,11 @@
 import { defineWidgetConfig } from "@medusajs/admin-sdk";
-import type { AdminProduct, DetailWidgetProps } from "@medusajs/framework/types";
+import type {
+  AdminProduct,
+  AdminProductVariant,
+  DetailWidgetProps,
+} from "@medusajs/framework/types";
 import { Badge, Button, Container, Drawer, Heading, Input, Table, Text, toast } from "@medusajs/ui";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { computeEconomics } from "../../modules/product-costs/lib/economics";
 import { formatAmount, formatPercent, parseInputCost, resolveVariantPrice } from "../lib/format";
 import { sdk } from "../lib/sdk";
@@ -40,6 +44,25 @@ interface CostRow {
 }
 
 /**
+ * A product detail page never hands a widget its variants.
+ *
+ * The dashboard loads the product for `product.details.*` with
+ * `PRODUCT_DETAIL_FIELDS = getLinkedFields("product", "*categories,*shipping_profile,-variants")`
+ * (see `@medusajs/dashboard/src/routes/products/product-detail/constants.ts`).
+ * The `-variants` there is an explicit exclusion: it fetches the variant table
+ * separately with `useProductVariants`. So `data.variants` is `undefined` on
+ * this page, and a widget that gated its render on `data.variants.length` -
+ * as this one did - returned `null` and never appeared at all. That was read at
+ * the time as a stale admin bundle; it was not, and no rebuild would ever have
+ * fixed it.
+ *
+ * So the widget fetches its own variants, the same way the dashboard's own
+ * variant section does. `data.variants` is still preferred when a future
+ * dashboard version does pass it.
+ */
+const VARIANT_FETCH_LIMIT = 200;
+
+/**
  * The primary place a cost is set. For every variant of the product it shows an
  * editable net cost, the live gross cost (grossed up by the plugin's configured
  * VAT rate), and - when the variant carries a sell price in the configured
@@ -52,16 +75,6 @@ interface CostRow {
  * Settings > Product costs; this widget is where per-product costing happens.
  */
 const ProductCostWidget = ({ data }: DetailWidgetProps<AdminProduct>) => {
-  const variants = useMemo(() => data.variants ?? [], [data.variants]);
-  const skus = useMemo(
-    () => [
-      ...new Set(
-        variants.map((variant) => variant.sku).filter((sku): sku is string => Boolean(sku)),
-      ),
-    ],
-    [variants],
-  );
-
   const [config, setConfig] = useState<ConfigResponse | null>(null);
   const [rows, setRows] = useState<CostRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -75,14 +88,35 @@ const ProductCostWidget = ({ data }: DetailWidgetProps<AdminProduct>) => {
 
     async function load() {
       setLoading(true);
-      const [configRes, costsRes] = await Promise.all([
+
+      const embedded = data.variants ?? null;
+      const [configRes, variants] = await Promise.all([
         sdk.client.fetch<ConfigResponse>("/admin/product-costs/config"),
+        embedded
+          ? Promise.resolve(embedded as AdminProductVariant[])
+          : sdk.admin.product
+              .listVariants(data.id, {
+                fields: "id,title,sku,*prices",
+                limit: VARIANT_FETCH_LIMIT,
+              })
+              .then((response) => response.variants ?? []),
+      ]);
+
+      if (cancelled) {
+        return;
+      }
+
+      const skus = [
+        ...new Set(
+          variants.map((variant) => variant.sku).filter((sku): sku is string => Boolean(sku)),
+        ),
+      ];
+      const costsRes =
         skus.length > 0
-          ? sdk.client.fetch<{ cost_prices: CostPriceDTO[] }>("/admin/product-costs", {
+          ? await sdk.client.fetch<{ cost_prices: CostPriceDTO[] }>("/admin/product-costs", {
               query: { limit: skus.length, sku: skus },
             })
-          : Promise.resolve({ cost_prices: [] as CostPriceDTO[] }),
-      ]);
+          : { cost_prices: [] as CostPriceDTO[] };
 
       if (cancelled) {
         return;
@@ -108,14 +142,18 @@ const ProductCostWidget = ({ data }: DetailWidgetProps<AdminProduct>) => {
       setLoading(false);
     }
 
-    load();
+    load().catch((error: unknown) => {
+      if (!cancelled) {
+        setLoading(false);
+        toast.error(error instanceof Error ? error.message : "Failed to load product costs");
+      }
+    });
 
     return () => {
       cancelled = true;
     };
-    // Re-run only when the product (and therefore its variant set) changes -
-    // `variants` and `skus` are derived from `data` on every render.
-  }, [data.id]);
+    // Re-run only when the product (and therefore its variant set) changes.
+  }, [data.id, data.variants]);
 
   const updateRow = (variantId: string, value: string) => {
     setRows((prev) =>
@@ -179,7 +217,9 @@ const ProductCostWidget = ({ data }: DetailWidgetProps<AdminProduct>) => {
     }
   };
 
-  if (variants.length === 0) {
+  // Only hide once the fetch has actually settled and the product really has no
+  // variants. Bailing out before that is what kept this widget off the page.
+  if (!loading && rows.length === 0) {
     return null;
   }
 
