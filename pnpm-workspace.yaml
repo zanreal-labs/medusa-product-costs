@@ -1,8 +1,7 @@
 allowBuilds:
-  "@medusajs/telemetry": true
-  "@swc/core": true
-  esbuild: true
-  msgpackr-extract: true
-  protobufjs: true
-  "@zanreal/medusa-admin-kit": true
-  "@zanreal/medusa-admin-kit@git+ssh://git@github.com/zanreal-labs/medusa-admin-kit.git#f313157bf066bb47504c9359a8637881ab07d144": true
+  '@medusajs/telemetry': set this to true or false
+  '@swc/core': set this to true or false
+  "@zanreal/medusa-admin-kit@https://codeload.github.com/zanreal-labs/medusa-admin-kit/tar.gz/7cfa268f1f2067e628d97da2cc1724e722d410a5": true
+  esbuild: set this to true or false
+  msgpackr-extract: set this to true or false
+  protobufjs: set this to true or false
