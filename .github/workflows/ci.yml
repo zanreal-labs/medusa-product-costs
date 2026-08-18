@@ -21,6 +21,15 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      # @zanreal/medusa-admin-kit is declared as `github:zanreal-labs/...`, which
+      # pnpm resolves to the SSH form `git@github.com:`. The runner has no SSH
+      # key, so the clone failed with "Permission denied (publickey)" and every
+      # job died here. The repository is public, so an anonymous HTTPS clone
+      # works and needs no credential - which also keeps the build reproducible
+      # for anyone outside the organisation.
+      - name: Clone git dependencies over HTTPS
+        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
