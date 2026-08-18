@@ -106,7 +106,7 @@ interface ResyncLinksResponse {
 const csvPlaceholder = (t: (key: string, defaultValue: string) => string): string =>
   `SKU-1,10.50\nSKU-2,20.00\n# ${t(
     "productCosts.settings.csvPlaceholderNote",
-    "also accepts ; as a delimiter and 20,00 as a decimal comma",
+    "also accepts ; as the delimiter and a comma as the decimal separator",
   )}`;
 
 /**
@@ -424,7 +424,7 @@ const ProductCostsSettingsPage = () => {
         <Text className="text-ui-fg-subtle mb-2" size="small">
           {t(
             "productCosts.settings.csvHelp",
-            'Two columns, sku and net cost. Quotes, a ";" delimiter, and decimal commas are all accepted - see the README for the exact format.',
+            'Two columns: sku and net cost. A comma or a semicolon both work as the delimiter, and both a period and a comma work as the decimal separator.',
           )}
         </Text>
         <Textarea

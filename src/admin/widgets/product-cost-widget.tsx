@@ -262,7 +262,7 @@ const ProductCostWidget = ({ data }: DetailWidgetProps<AdminProduct>) => {
           <Text className="text-ui-fg-subtle" size="small">
             {t(
               "productCosts.widget.description",
-              "Net purchase cost per variant. Gross is grossed up by VAT and is also the break-even sell price - this plugin applies no channel commission.",
+              "Net purchase cost per variant. The gross figure adds VAT and also doubles as the break-even sell price - this plugin applies no channel commission.",
             )}
           </Text>
         </div>
