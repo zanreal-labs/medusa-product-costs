@@ -6,9 +6,21 @@ import type {
 } from "@medusajs/framework/types";
 import { Badge, Button, Container, Drawer, Heading, Input, Table, Text, toast } from "@medusajs/ui";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { computeEconomics } from "../../modules/product-costs/lib/economics";
 import { formatAmount, formatPercent, parseInputCost, resolveVariantPrice } from "../lib/format";
 import { sdk } from "../lib/sdk";
+
+// i18next interpolation only fires once a translation resource is actually
+// loaded; without one (this plugin's own component tests, which render with
+// no i18next instance configured) `t(key, defaultValue)` returns
+// `defaultValue` verbatim, `{{tokens}}` included. Substituting by hand here
+// keeps both paths - translated and untranslated - correct the same way.
+const interpolate = (template: string, values: Record<string, string | number>): string =>
+  Object.entries(values).reduce(
+    (result, [key, value]) => result.split(`{{${key}}}`).join(String(value)),
+    template,
+  );
 
 interface ConfigResponse {
   /** `null` when no VAT rate is configured - this plugin ships no default one. */
@@ -77,6 +89,7 @@ const VARIANT_FETCH_LIMIT = 200;
  * Settings > Product costs; this widget is where per-product costing happens.
  */
 const ProductCostWidget = ({ data }: DetailWidgetProps<AdminProduct>) => {
+  const { t } = useTranslation();
   const [config, setConfig] = useState<ConfigResponse | null>(null);
   const [rows, setRows] = useState<CostRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -149,7 +162,11 @@ const ProductCostWidget = ({ data }: DetailWidgetProps<AdminProduct>) => {
     load().catch((error: unknown) => {
       if (!cancelled) {
         setLoading(false);
-        toast.error(error instanceof Error ? error.message : "Failed to load product costs");
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t("productCosts.widget.loadError", "Failed to load product costs"),
+        );
       }
     });
 
@@ -167,12 +184,14 @@ const ProductCostWidget = ({ data }: DetailWidgetProps<AdminProduct>) => {
 
   const save = async (row: CostRow) => {
     if (!row.sku) {
-      toast.error("This variant has no SKU - add one before setting a cost.");
+      toast.error(
+        t("productCosts.widget.noSkuError", "This variant has no SKU - add one before setting a cost."),
+      );
       return;
     }
     const unitCostNet = parseInputCost(row.unitCostNet);
     if (unitCostNet === undefined) {
-      toast.error("Enter a positive net cost.");
+      toast.error(t("productCosts.widget.invalidCostError", "Enter a positive net cost."));
       return;
     }
 
@@ -197,12 +216,16 @@ const ProductCostWidget = ({ data }: DetailWidgetProps<AdminProduct>) => {
             : r,
         ),
       );
-      toast.success(`Saved cost for ${row.sku}`);
+      toast.success(
+        interpolate(t("productCosts.widget.savedCost", "Saved cost for {{sku}}"), { sku: row.sku }),
+      );
     } catch (error) {
       setRows((prev) =>
         prev.map((r) => (r.variantId === row.variantId ? { ...r, saving: false } : r)),
       );
-      toast.error(error instanceof Error ? error.message : "Failed to save cost");
+      toast.error(
+        error instanceof Error ? error.message : t("productCosts.widget.saveError", "Failed to save cost"),
+      );
     }
   };
 
@@ -215,7 +238,11 @@ const ProductCostWidget = ({ data }: DetailWidgetProps<AdminProduct>) => {
       );
       setHistory(res.history);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to load history");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("productCosts.widget.historyLoadError", "Failed to load history"),
+      );
     } finally {
       setHistoryLoading(false);
     }
@@ -231,27 +258,36 @@ const ProductCostWidget = ({ data }: DetailWidgetProps<AdminProduct>) => {
     <Container className="divide-y p-0">
       <div className="flex items-center justify-between px-6 py-4">
         <div>
-          <Heading level="h2">Product costs</Heading>
+          <Heading level="h2">{t("productCosts.widget.heading", "Product costs")}</Heading>
           <Text className="text-ui-fg-subtle" size="small">
-            Net purchase cost per variant. Gross is grossed up by VAT and is also the break-even
-            sell price - this plugin applies no channel commission.
+            {t(
+              "productCosts.widget.description",
+              "Net purchase cost per variant. Gross is grossed up by VAT and is also the break-even sell price - this plugin applies no channel commission.",
+            )}
           </Text>
         </div>
         {config ? (
           <Text className="text-ui-fg-subtle" size="small">
-            {config.vatRate === null ? "VAT not set" : `VAT ${Math.round(config.vatRate * 100)}%`} ·{" "}
-            {config.defaultCurrency ?? "currency not set"}
+            {config.vatRate === null
+              ? t("productCosts.widget.vatNotSet", "VAT not set")
+              : interpolate(t("productCosts.widget.vatPercent", "VAT {{percent}}%"), {
+                  percent: Math.round(config.vatRate * 100),
+                })}{" "}
+            ·{" "}
+            {config.defaultCurrency ?? t("productCosts.widget.currencyNotSet", "currency not set")}
           </Text>
         ) : null}
       </div>
       <Table>
         <Table.Header>
           <Table.Row>
-            <Table.HeaderCell>Variant</Table.HeaderCell>
-            <Table.HeaderCell>SKU</Table.HeaderCell>
-            <Table.HeaderCell>Net cost</Table.HeaderCell>
-            <Table.HeaderCell>Gross (incl. VAT)</Table.HeaderCell>
-            <Table.HeaderCell>Margin</Table.HeaderCell>
+            <Table.HeaderCell>{t("productCosts.widget.columns.variant", "Variant")}</Table.HeaderCell>
+            <Table.HeaderCell>{t("productCosts.widget.columns.sku", "SKU")}</Table.HeaderCell>
+            <Table.HeaderCell>{t("productCosts.widget.columns.netCost", "Net cost")}</Table.HeaderCell>
+            <Table.HeaderCell>
+              {t("productCosts.widget.columns.grossCost", "Gross (incl. VAT)")}
+            </Table.HeaderCell>
+            <Table.HeaderCell>{t("productCosts.widget.columns.margin", "Margin")}</Table.HeaderCell>
             <Table.HeaderCell />
           </Table.Row>
         </Table.Header>
@@ -259,7 +295,7 @@ const ProductCostWidget = ({ data }: DetailWidgetProps<AdminProduct>) => {
           {loading ? (
             <Table.Row>
               <Table.Cell>
-                <Text size="small">Loading...</Text>
+                <Text size="small">{t("productCosts.common.loading", "Loading...")}</Text>
               </Table.Cell>
               <Table.Cell />
               <Table.Cell />
@@ -286,7 +322,11 @@ const ProductCostWidget = ({ data }: DetailWidgetProps<AdminProduct>) => {
                 <Table.Row key={row.variantId}>
                   <Table.Cell>{row.variantTitle}</Table.Cell>
                   <Table.Cell>
-                    {row.sku || <Text className="text-ui-fg-muted">no sku</Text>}
+                    {row.sku || (
+                      <Text className="text-ui-fg-muted">
+                        {t("productCosts.widget.noSku", "no sku")}
+                      </Text>
+                    )}
                   </Table.Cell>
                   <Table.Cell>
                     <div className="flex items-center gap-2">
@@ -314,13 +354,21 @@ const ProductCostWidget = ({ data }: DetailWidgetProps<AdminProduct>) => {
                           {formatPercent(econ.marginPct)}
                         </Badge>
                         <Text className="text-ui-fg-muted" size="xsmall">
-                          {formatAmount(econ.netIncome)} {row.currency} at{" "}
-                          {formatAmount(row.sellingPrice)}
+                          {formatAmount(econ.netIncome)} {row.currency}{" "}
+                          {t("productCosts.widget.atPrice", "at")} {formatAmount(row.sellingPrice)}
                         </Text>
                       </div>
                     ) : (
                       <Text className="text-ui-fg-muted" size="xsmall">
-                        {netCost === undefined ? "-" : `set a ${row.currency} price to see margin`}
+                        {netCost === undefined
+                          ? "-"
+                          : interpolate(
+                              t(
+                                "productCosts.widget.setPriceToSeeMargin",
+                                "set a {{currency}} price to see margin",
+                              ),
+                              { currency: row.currency },
+                            )}
                       </Text>
                     )}
                   </Table.Cell>
@@ -332,7 +380,7 @@ const ProductCostWidget = ({ data }: DetailWidgetProps<AdminProduct>) => {
                         size="small"
                         variant="secondary"
                       >
-                        Save
+                        {t("productCosts.widget.save", "Save")}
                       </Button>
                       <Button
                         disabled={!row.sku}
@@ -340,7 +388,7 @@ const ProductCostWidget = ({ data }: DetailWidgetProps<AdminProduct>) => {
                         size="small"
                         variant="transparent"
                       >
-                        History
+                        {t("productCosts.widget.history", "History")}
                       </Button>
                     </div>
                   </Table.Cell>
@@ -354,21 +402,33 @@ const ProductCostWidget = ({ data }: DetailWidgetProps<AdminProduct>) => {
       <Drawer onOpenChange={(open) => !open && setHistorySku(null)} open={historySku !== null}>
         <Drawer.Content>
           <Drawer.Header>
-            <Drawer.Title>Cost history for {historySku}</Drawer.Title>
+            <Drawer.Title>
+              {interpolate(t("productCosts.widget.historyTitle", "Cost history for {{sku}}"), {
+                sku: historySku ?? "",
+              })}
+            </Drawer.Title>
           </Drawer.Header>
           <Drawer.Body>
             {historyLoading ? (
-              <Text size="small">Loading...</Text>
+              <Text size="small">{t("productCosts.common.loading", "Loading...")}</Text>
             ) : (history.length === 0 ? (
-              <Text size="small">No history recorded yet.</Text>
+              <Text size="small">{t("productCosts.widget.noHistory", "No history recorded yet.")}</Text>
             ) : (
               <Table>
                 <Table.Header>
                   <Table.Row>
-                    <Table.HeaderCell>Cost</Table.HeaderCell>
-                    <Table.HeaderCell>Source</Table.HeaderCell>
-                    <Table.HeaderCell>Changed by</Table.HeaderCell>
-                    <Table.HeaderCell>Changed at</Table.HeaderCell>
+                    <Table.HeaderCell>
+                      {t("productCosts.widget.historyColumns.cost", "Cost")}
+                    </Table.HeaderCell>
+                    <Table.HeaderCell>
+                      {t("productCosts.widget.historyColumns.source", "Source")}
+                    </Table.HeaderCell>
+                    <Table.HeaderCell>
+                      {t("productCosts.widget.historyColumns.changedBy", "Changed by")}
+                    </Table.HeaderCell>
+                    <Table.HeaderCell>
+                      {t("productCosts.widget.historyColumns.changedAt", "Changed at")}
+                    </Table.HeaderCell>
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>

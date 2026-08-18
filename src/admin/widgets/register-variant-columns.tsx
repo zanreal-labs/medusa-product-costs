@@ -2,9 +2,23 @@ import { defineWidgetConfig } from "@medusajs/admin-sdk";
 import { Text } from "@medusajs/ui";
 import { registerVariantColumn } from "@zanreal/medusa-admin-kit";
 import type { CatalogProduct } from "@zanreal/medusa-admin-kit";
+import { getI18n } from "react-i18next";
 import { formatVariantCost, resolveVariantCost } from "../lib/variant-cost";
 import type { CostPriceLike, VariantCost } from "../lib/variant-cost";
 import { sdk } from "../lib/sdk";
+
+/**
+ * `registerVariantColumn` runs at module-evaluation time (see the note
+ * below), outside any component render, so `cell` and `header` cannot call
+ * the `useTranslation` hook. `getI18n()` reads the same i18next instance the
+ * hook itself falls back to (`i18nFromContext || getI18n()`), so this stays
+ * in step with whatever the host dashboard has configured - and falls back
+ * to the given English text, unchanged, when no instance exists yet.
+ */
+const t = (key: string, defaultValue: string): string => {
+  const i18n = getI18n();
+  return i18n ? i18n.t(key, defaultValue) : defaultValue;
+};
 
 /**
  * Registers the per-variant cost column in the shared, extensible catalogue
@@ -68,7 +82,7 @@ registerVariantColumn<CatalogProduct, VariantCost | null>({
     if (async.error) {
       return (
         <Text className="text-ui-fg-error" size="small">
-          error
+          {t("productCosts.catalogColumn.error", "error")}
         </Text>
       );
     }
@@ -76,7 +90,7 @@ registerVariantColumn<CatalogProduct, VariantCost | null>({
     if (!cost) {
       return (
         <Text className="text-ui-fg-muted" size="small">
-          not costed
+          {t("productCosts.catalogColumn.notCosted", "not costed")}
         </Text>
       );
     }
@@ -85,13 +99,13 @@ registerVariantColumn<CatalogProduct, VariantCost | null>({
         <Text size="small">{formatVariantCost(cost)}</Text>
         <Text className="text-ui-fg-muted" size="xsmall">
           {cost.grossCost === undefined
-            ? "no VAT rate set"
-            : `${cost.grossCost.toFixed(2)} incl. VAT`}
+            ? t("productCosts.catalogColumn.noVatRateSet", "no VAT rate set")
+            : `${cost.grossCost.toFixed(2)} ${t("productCosts.catalogColumn.inclVat", "incl. VAT")}`}
         </Text>
       </div>
     );
   },
-  header: "Cost",
+  header: t("productCosts.catalogColumn.header", "Cost"),
   id: "product-costs.cost",
   loadData: async (ctx) => {
     if (!ctx.sku) {

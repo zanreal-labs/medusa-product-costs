@@ -1,0 +1,85 @@
+{
+  "productCosts": {
+    "common": {
+      "loading": "Loading..."
+    },
+    "widget": {
+      "loadError": "Failed to load product costs",
+      "noSkuError": "This variant has no SKU - add one before setting a cost.",
+      "invalidCostError": "Enter a positive net cost.",
+      "savedCost": "Saved cost for {{sku}}",
+      "saveError": "Failed to save cost",
+      "historyLoadError": "Failed to load history",
+      "heading": "Product costs",
+      "description": "Net purchase cost per variant. Gross is grossed up by VAT and is also the break-even sell price - this plugin applies no channel commission.",
+      "vatNotSet": "VAT not set",
+      "vatPercent": "VAT {{percent}}%",
+      "currencyNotSet": "currency not set",
+      "columns": {
+        "variant": "Variant",
+        "sku": "SKU",
+        "netCost": "Net cost",
+        "grossCost": "Gross (incl. VAT)",
+        "margin": "Margin"
+      },
+      "noSku": "no sku",
+      "atPrice": "at",
+      "setPriceToSeeMargin": "set a {{currency}} price to see margin",
+      "save": "Save",
+      "history": "History",
+      "historyTitle": "Cost history for {{sku}}",
+      "noHistory": "No history recorded yet.",
+      "historyColumns": {
+        "cost": "Cost",
+        "source": "Source",
+        "changedBy": "Changed by",
+        "changedAt": "Changed at"
+      }
+    },
+    "settings": {
+      "vatRateInvalid": "Enter a VAT rate between 0 and 100.",
+      "currencyInvalid": "Pick a 3-letter currency code.",
+      "configSaved": "Saved. Every gross-cost and margin calculation uses this now - no restart needed.",
+      "configSaveError": "Could not save the configuration.",
+      "configCleared": "Cleared. Both settings fall back to whatever this plugin was installed with, and are unset if it was installed with neither.",
+      "configClearError": "Could not reset the configuration.",
+      "resyncResult": "Resynced {{checked}} SKUs, {{changed}} link(s) updated",
+      "resyncResultWithDuplicates": "Resynced {{checked}} SKUs, {{changed}} link(s) updated - {{duplicates}} SKU(s) matched more than one variant",
+      "resyncError": "Resync failed",
+      "csvRequired": "Paste or upload a CSV file first.",
+      "importResult": "Imported: {{created}} created, {{updated}} updated, {{skipped}} skipped, {{errors}} errors",
+      "importResultWithDuplicates": "Imported: {{created}} created, {{updated}} updated, {{skipped}} skipped, {{errors}} errors - {{duplicates}} SKU(s) matched more than one variant",
+      "importError": "Import failed",
+      "heading": "Product costs",
+      "subtitle": "Plugin configuration and bulk import. Set a single product's cost from its own detail page.",
+      "configHeading": "Configuration",
+      "clearSavedValues": "Clear saved values",
+      "configExplain1": "The VAT rate and default currency every gross-cost, margin and break-even figure in this plugin is worked out from. Saving here takes effect immediately, with no backend restart, and wins over whatever the plugin was installed with until you clear it.",
+      "configExplain2": "Neither has a built-in default: this plugin does not know which market you trade in, and a guessed VAT rate or currency would move every figure it shows you without saying so. While either is blank, the calculations that need it refuse instead of returning a number nobody chose. Enter",
+      "configExplain2Suffix": "as the VAT rate if your costs genuinely carry none.",
+      "alertBothMissing": "No VAT rate and no default currency are set yet. Gross cost, margin and break-even cannot be worked out, and a cost saved without an explicit currency is refused, until both are filled in below.",
+      "alertVatMissing": "No VAT rate is set yet, so gross cost, margin and break-even cannot be worked out. Fill it in below - enter 0 if your costs carry no VAT.",
+      "alertCurrencyMissing": "No default currency is set yet, so a cost saved without an explicit currency is refused. Fill it in below.",
+      "vatRateLabel": "VAT rate (%)",
+      "vatRatePlaceholder": "e.g. 20",
+      "currencyLabel": "Default currency",
+      "selectCurrencyPlaceholder": "Select currency",
+      "save": "Save",
+      "csvHeading": "Bulk import (CSV)",
+      "resyncButton": "Resync variant links",
+      "csvHelp": "Two columns, sku and net cost. Quotes, a \";\" delimiter, and decimal commas are all accepted - see the README for the exact format.",
+      "csvPlaceholderNote": "also accepts ; as a delimiter and 20,00 as a decimal comma",
+      "import": "Import",
+      "uploadInstead": "Upload a file instead",
+      "importErrorsHeading": "{{count}} row(s) could not be imported:",
+      "importErrorLinePrefix": "Line"
+    },
+    "catalogColumn": {
+      "header": "Cost",
+      "error": "error",
+      "notCosted": "not costed",
+      "noVatRateSet": "no VAT rate set",
+      "inclVat": "incl. VAT"
+    }
+  }
+}

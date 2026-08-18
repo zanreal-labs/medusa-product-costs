@@ -12,7 +12,19 @@ import {
   toast,
 } from "@medusajs/ui";
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { sdk } from "../../../lib/sdk";
+
+// i18next interpolation only fires once a translation resource is actually
+// loaded; without one (this plugin's own component tests, which render with
+// no i18next instance configured) `t(key, defaultValue)` returns
+// `defaultValue` verbatim, `{{tokens}}` included. Substituting by hand here
+// keeps both paths - translated and untranslated - correct the same way.
+const interpolate = (template: string, values: Record<string, string | number>): string =>
+  Object.entries(values).reduce(
+    (result, [key, value]) => result.split(`{{${key}}}`).join(String(value)),
+    template,
+  );
 
 interface ConfigResponse {
   /** `null` when no VAT rate is configured anywhere - the plugin ships no default one. */
@@ -91,8 +103,11 @@ interface ResyncLinksResponse {
   duplicateSkus: Record<string, number>;
 }
 
-const CSV_PLACEHOLDER =
-  "SKU-1,10.50\nSKU-2,20.00\n# also accepts ; as a delimiter and 20,00 as a decimal comma";
+const csvPlaceholder = (t: (key: string, defaultValue: string) => string): string =>
+  `SKU-1,10.50\nSKU-2,20.00\n# ${t(
+    "productCosts.settings.csvPlaceholderNote",
+    "also accepts ; as a delimiter and 20,00 as a decimal comma",
+  )}`;
 
 /**
  * Configuration and bulk operations for the product-costs plugin.
@@ -103,6 +118,7 @@ const CSV_PLACEHOLDER =
  * The variant-link resync is a maintenance action that belongs with them.
  */
 const ProductCostsSettingsPage = () => {
+  const { t } = useTranslation();
   const [config, setConfig] = useState<ConfigResponse | null>(null);
   const [vatRateInput, setVatRateInput] = useState("");
   const [currencyInput, setCurrencyInput] = useState("");
@@ -146,12 +162,12 @@ const ProductCostsSettingsPage = () => {
   const saveConfig = async () => {
     const vatRate = parseVatPercent(vatRateInput);
     if (vatRate === undefined) {
-      toast.error("Enter a VAT rate between 0 and 100.");
+      toast.error(t("productCosts.settings.vatRateInvalid", "Enter a VAT rate between 0 and 100."));
       return;
     }
     const currency = currencyInput.trim().toUpperCase();
     if (!/^[A-Z]{3}$/.test(currency)) {
-      toast.error("Pick a 3-letter currency code.");
+      toast.error(t("productCosts.settings.currencyInvalid", "Pick a 3-letter currency code."));
       return;
     }
     setSavingConfig(true);
@@ -162,10 +178,17 @@ const ProductCostsSettingsPage = () => {
       });
       applyConfig(res);
       toast.success(
-        "Saved. Every gross-cost and margin calculation uses this now - no restart needed.",
+        t(
+          "productCosts.settings.configSaved",
+          "Saved. Every gross-cost and margin calculation uses this now - no restart needed.",
+        ),
       );
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not save the configuration.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("productCosts.settings.configSaveError", "Could not save the configuration."),
+      );
     } finally {
       setSavingConfig(false);
     }
@@ -180,10 +203,17 @@ const ProductCostsSettingsPage = () => {
       });
       applyConfig(res);
       toast.success(
-        "Cleared. Both settings fall back to whatever this plugin was installed with, and are unset if it was installed with neither.",
+        t(
+          "productCosts.settings.configCleared",
+          "Cleared. Both settings fall back to whatever this plugin was installed with, and are unset if it was installed with neither.",
+        ),
       );
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not reset the configuration.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("productCosts.settings.configClearError", "Could not reset the configuration."),
+      );
     } finally {
       setResettingConfig(false);
     }
@@ -204,11 +234,23 @@ const ProductCostsSettingsPage = () => {
       const duplicateCount = Object.keys(res.duplicateSkus).length;
       toast.success(
         duplicateCount > 0
-          ? `Resynced ${res.skusChecked} SKUs, ${res.changed} link(s) updated - ${duplicateCount} SKU(s) matched more than one variant`
-          : `Resynced ${res.skusChecked} SKUs, ${res.changed} link(s) updated`,
+          ? interpolate(
+              t(
+                "productCosts.settings.resyncResultWithDuplicates",
+                "Resynced {{checked}} SKUs, {{changed}} link(s) updated - {{duplicates}} SKU(s) matched more than one variant",
+              ),
+              { changed: res.changed, checked: res.skusChecked, duplicates: duplicateCount },
+            )
+          : interpolate(
+              t(
+                "productCosts.settings.resyncResult",
+                "Resynced {{checked}} SKUs, {{changed}} link(s) updated",
+              ),
+              { changed: res.changed, checked: res.skusChecked },
+            ),
       );
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Resync failed");
+      toast.error(error instanceof Error ? error.message : t("productCosts.settings.resyncError", "Resync failed"));
     } finally {
       setResyncing(false);
     }
@@ -216,7 +258,7 @@ const ProductCostsSettingsPage = () => {
 
   const runImport = async () => {
     if (!csvText.trim()) {
-      toast.error("Paste or upload a CSV file first.");
+      toast.error(t("productCosts.settings.csvRequired", "Paste or upload a CSV file first."));
       return;
     }
     setImporting(true);
@@ -229,13 +271,36 @@ const ProductCostsSettingsPage = () => {
       setImportResult(res);
       const duplicateCount = Object.keys(res.duplicateSkus).length;
       toast.success(
-        `Imported: ${res.created} created, ${res.updated} updated, ${res.skipped} skipped, ${res.errors.length} errors${
-          duplicateCount > 0 ? ` - ${duplicateCount} SKU(s) matched more than one variant` : ""
-        }`,
+        duplicateCount > 0
+          ? interpolate(
+              t(
+                "productCosts.settings.importResultWithDuplicates",
+                "Imported: {{created}} created, {{updated}} updated, {{skipped}} skipped, {{errors}} errors - {{duplicates}} SKU(s) matched more than one variant",
+              ),
+              {
+                created: res.created,
+                duplicates: duplicateCount,
+                errors: res.errors.length,
+                skipped: res.skipped,
+                updated: res.updated,
+              },
+            )
+          : interpolate(
+              t(
+                "productCosts.settings.importResult",
+                "Imported: {{created}} created, {{updated}} updated, {{skipped}} skipped, {{errors}} errors",
+              ),
+              {
+                created: res.created,
+                errors: res.errors.length,
+                skipped: res.skipped,
+                updated: res.updated,
+              },
+            ),
       );
       setCsvText("");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Import failed");
+      toast.error(error instanceof Error ? error.message : t("productCosts.settings.importError", "Import failed"));
     } finally {
       setImporting(false);
     }
@@ -244,16 +309,18 @@ const ProductCostsSettingsPage = () => {
   return (
     <Container className="divide-y p-0">
       <div className="px-6 py-4">
-        <Heading level="h1">Product costs</Heading>
+        <Heading level="h1">{t("productCosts.settings.heading", "Product costs")}</Heading>
         <Text className="text-ui-fg-subtle" size="small">
-          Plugin configuration and bulk import. Set a single product's cost from its own detail
-          page.
+          {t(
+            "productCosts.settings.subtitle",
+            "Plugin configuration and bulk import. Set a single product's cost from its own detail page.",
+          )}
         </Text>
       </div>
 
       <div className="px-6 py-4">
         <div className="mb-2 flex items-center justify-between">
-          <Heading level="h2">Configuration</Heading>
+          <Heading level="h2">{t("productCosts.settings.configHeading", "Configuration")}</Heading>
           {hasOverride ? (
             <Button
               disabled={!config}
@@ -262,51 +329,68 @@ const ProductCostsSettingsPage = () => {
               size="small"
               variant="secondary"
             >
-              Clear saved values
+              {t("productCosts.settings.clearSavedValues", "Clear saved values")}
             </Button>
           ) : null}
         </div>
         <Text className="text-ui-fg-subtle mb-3" size="small">
-          The VAT rate and default currency every gross-cost, margin and break-even figure in this
-          plugin is worked out from. Saving here takes effect immediately, with no backend restart,
-          and wins over whatever the plugin was installed with until you clear it.
+          {t(
+            "productCosts.settings.configExplain1",
+            "The VAT rate and default currency every gross-cost, margin and break-even figure in this plugin is worked out from. Saving here takes effect immediately, with no backend restart, and wins over whatever the plugin was installed with until you clear it.",
+          )}
         </Text>
         <Text className="text-ui-fg-subtle mb-3" size="small">
-          Neither has a built-in default: this plugin does not know which market you trade in, and a
-          guessed VAT rate or currency would move every figure it shows you without saying so. While
-          either is blank, the calculations that need it refuse instead of returning a number nobody
-          chose. Enter <code>0</code> as the VAT rate if your costs genuinely carry none.
+          {t(
+            "productCosts.settings.configExplain2",
+            "Neither has a built-in default: this plugin does not know which market you trade in, and a guessed VAT rate or currency would move every figure it shows you without saying so. While either is blank, the calculations that need it refuse instead of returning a number nobody chose. Enter",
+          )}{" "}
+          <code>0</code>{" "}
+          {t("productCosts.settings.configExplain2Suffix", "as the VAT rate if your costs genuinely carry none.")}
         </Text>
         {config && (config.vatRate === null || config.defaultCurrency === null) ? (
           <Alert className="mb-3" variant="warning">
             {config.vatRate === null && config.defaultCurrency === null
-              ? "No VAT rate and no default currency are set yet. Gross cost, margin and break-even cannot be worked out, and a cost saved without an explicit currency is refused, until both are filled in below."
+              ? t(
+                  "productCosts.settings.alertBothMissing",
+                  "No VAT rate and no default currency are set yet. Gross cost, margin and break-even cannot be worked out, and a cost saved without an explicit currency is refused, until both are filled in below.",
+                )
               : config.vatRate === null
-                ? "No VAT rate is set yet, so gross cost, margin and break-even cannot be worked out. Fill it in below - enter 0 if your costs carry no VAT."
-                : "No default currency is set yet, so a cost saved without an explicit currency is refused. Fill it in below."}
+                ? t(
+                    "productCosts.settings.alertVatMissing",
+                    "No VAT rate is set yet, so gross cost, margin and break-even cannot be worked out. Fill it in below - enter 0 if your costs carry no VAT.",
+                  )
+                : t(
+                    "productCosts.settings.alertCurrencyMissing",
+                    "No default currency is set yet, so a cost saved without an explicit currency is refused. Fill it in below.",
+                  )}
           </Alert>
         ) : null}
         {config ? (
           <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
             <div className="flex flex-col gap-y-1">
               <Label htmlFor="product-costs-vat-rate" size="small">
-                VAT rate (%)
+                {t("productCosts.settings.vatRateLabel", "VAT rate (%)")}
               </Label>
               <Input
                 autoComplete="off"
                 id="product-costs-vat-rate"
                 onChange={(event) => setVatRateInput(event.target.value)}
-                placeholder="e.g. 20"
+                placeholder={t("productCosts.settings.vatRatePlaceholder", "e.g. 20")}
                 value={vatRateInput}
               />
             </div>
             <div className="flex flex-col gap-y-1">
               <Label htmlFor="product-costs-currency" size="small">
-                Default currency
+                {t("productCosts.settings.currencyLabel", "Default currency")}
               </Label>
               <Select onValueChange={setCurrencyInput} value={currencyInput}>
-                <Select.Trigger aria-label="Default currency" id="product-costs-currency">
-                  <Select.Value placeholder="Select currency" />
+                <Select.Trigger
+                  aria-label={t("productCosts.settings.currencyLabel", "Default currency")}
+                  id="product-costs-currency"
+                >
+                  <Select.Value
+                    placeholder={t("productCosts.settings.selectCurrencyPlaceholder", "Select currency")}
+                  />
                 </Select.Trigger>
                 <Select.Content>
                   {currencyOptions.map((code) => (
@@ -320,39 +404,41 @@ const ProductCostsSettingsPage = () => {
           </div>
         ) : (
           <Text className="text-ui-fg-subtle" size="small">
-            Loading...
+            {t("productCosts.common.loading", "Loading...")}
           </Text>
         )}
         <div className="mt-4">
           <Button disabled={!config} isLoading={savingConfig} onClick={saveConfig}>
-            Save
+            {t("productCosts.settings.save", "Save")}
           </Button>
         </div>
       </div>
 
       <div className="px-6 py-4">
         <div className="mb-2 flex items-center justify-between">
-          <Heading level="h2">Bulk import (CSV)</Heading>
+          <Heading level="h2">{t("productCosts.settings.csvHeading", "Bulk import (CSV)")}</Heading>
           <Button isLoading={resyncing} onClick={runResyncLinks} size="small" variant="secondary">
-            Resync variant links
+            {t("productCosts.settings.resyncButton", "Resync variant links")}
           </Button>
         </div>
         <Text className="text-ui-fg-subtle mb-2" size="small">
-          Two columns, sku and net cost. Quotes, a ";" delimiter, and decimal commas are all
-          accepted - see the README for the exact format.
+          {t(
+            "productCosts.settings.csvHelp",
+            'Two columns, sku and net cost. Quotes, a ";" delimiter, and decimal commas are all accepted - see the README for the exact format.',
+          )}
         </Text>
         <Textarea
           onChange={(event) => setCsvText(event.target.value)}
-          placeholder={CSV_PLACEHOLDER}
+          placeholder={csvPlaceholder(t)}
           rows={6}
           value={csvText}
         />
         <div className="mt-2 flex items-center gap-2">
           <Button isLoading={importing} onClick={runImport}>
-            Import
+            {t("productCosts.settings.import", "Import")}
           </Button>
           <label className="text-ui-fg-interactive cursor-pointer text-sm">
-            Upload a file instead
+            {t("productCosts.settings.uploadInstead", "Upload a file instead")}
             <input
               accept=".csv,text/csv"
               className="hidden"
@@ -370,13 +456,17 @@ const ProductCostsSettingsPage = () => {
         {importResult && importResult.errors.length > 0 ? (
           <div className="mt-4">
             <Text className="font-medium" size="small">
-              {importResult.errors.length} row(s) could not be imported:
+              {interpolate(
+                t("productCosts.settings.importErrorsHeading", "{{count}} row(s) could not be imported:"),
+                { count: importResult.errors.length },
+              )}
             </Text>
             <ul className="mt-1 list-disc pl-5">
               {importResult.errors.map((err) => (
                 <li key={`${err.lineNumber}-${err.raw}`}>
                   <Text className="text-ui-fg-subtle" size="small">
-                    Line {err.lineNumber}: {err.reason} ({err.raw})
+                    {t("productCosts.settings.importErrorLinePrefix", "Line")} {err.lineNumber}:{" "}
+                    {err.reason} ({err.raw})
                   </Text>
                 </li>
               ))}

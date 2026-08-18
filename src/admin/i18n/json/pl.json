@@ -1,0 +1,85 @@
+{
+  "productCosts": {
+    "common": {
+      "loading": "Wczytywanie..."
+    },
+    "widget": {
+      "loadError": "Nie udało się wczytać kosztów produktów",
+      "noSkuError": "Ten wariant nie ma SKU - dodaj je, zanim ustawisz koszt.",
+      "invalidCostError": "Podaj dodatni koszt netto.",
+      "savedCost": "Zapisano koszt dla {{sku}}",
+      "saveError": "Nie udało się zapisać kosztu",
+      "historyLoadError": "Nie udało się wczytać historii",
+      "heading": "Koszty produktów",
+      "description": "Koszt zakupu netto dla każdego wariantu. Kwota brutto jest wyliczana z VAT i jednocześnie stanowi cenę progu rentowności - plugin nie uwzględnia żadnej prowizji kanału sprzedaży.",
+      "vatNotSet": "VAT nieustawiony",
+      "vatPercent": "VAT {{percent}}%",
+      "currencyNotSet": "waluta nieustawiona",
+      "columns": {
+        "variant": "Wariant",
+        "sku": "SKU",
+        "netCost": "Koszt netto",
+        "grossCost": "Brutto (z VAT)",
+        "margin": "Marża"
+      },
+      "noSku": "brak sku",
+      "atPrice": "przy cenie",
+      "setPriceToSeeMargin": "ustaw cenę w {{currency}}, aby zobaczyć marżę",
+      "save": "Zapisz",
+      "history": "Historia",
+      "historyTitle": "Historia kosztu dla {{sku}}",
+      "noHistory": "Brak zapisanej historii.",
+      "historyColumns": {
+        "cost": "Koszt",
+        "source": "Źródło",
+        "changedBy": "Zmienił/a",
+        "changedAt": "Data zmiany"
+      }
+    },
+    "settings": {
+      "vatRateInvalid": "Podaj stawkę VAT z zakresu od 0 do 100.",
+      "currencyInvalid": "Wybierz 3-literowy kod waluty.",
+      "configSaved": "Zapisano. Od teraz każde wyliczenie kosztu brutto i marży korzysta z tych wartości - restart nie jest potrzebny.",
+      "configSaveError": "Nie udało się zapisać konfiguracji.",
+      "configCleared": "Wyczyszczono. Oba ustawienia wracają do wartości z instalacji pluginu, a jeśli żadnej nie podano przy instalacji - pozostają nieustawione.",
+      "configClearError": "Nie udało się zresetować konfiguracji.",
+      "resyncResult": "Zsynchronizowano {{checked}} SKU, zaktualizowano powiązań: {{changed}}",
+      "resyncResultWithDuplicates": "Zsynchronizowano {{checked}} SKU, zaktualizowano powiązań: {{changed}} - SKU dopasowanych do więcej niż jednego wariantu: {{duplicates}}",
+      "resyncError": "Synchronizacja nie powiodła się",
+      "csvRequired": "Wklej lub wgraj najpierw plik CSV.",
+      "importResult": "Zaimportowano: utworzono {{created}}, zaktualizowano {{updated}}, pominięto {{skipped}}, błędów {{errors}}",
+      "importResultWithDuplicates": "Zaimportowano: utworzono {{created}}, zaktualizowano {{updated}}, pominięto {{skipped}}, błędów {{errors}} - SKU dopasowanych do więcej niż jednego wariantu: {{duplicates}}",
+      "importError": "Import nie powiódł się",
+      "heading": "Koszty produktów",
+      "subtitle": "Konfiguracja pluginu i import zbiorczy. Koszt pojedynczego produktu ustawisz na jego stronie szczegółów.",
+      "configHeading": "Konfiguracja",
+      "clearSavedValues": "Wyczyść zapisane wartości",
+      "configExplain1": "Stawka VAT i domyślna waluta, na podstawie których plugin wylicza każdy koszt brutto, marżę i próg rentowności. Zapis tutaj obowiązuje od razu, bez restartu backendu, i ma pierwszeństwo przed wartością z instalacji pluginu, dopóki go nie wyczyścisz.",
+      "configExplain2": "Żadne z nich nie ma wartości domyślnej: plugin nie wie, na jakim rynku handlujesz, a odgadnięta stawka VAT albo waluta zmieniłaby każdą pokazywaną liczbę bez ostrzeżenia. Dopóki pole jest puste, obliczenia które go potrzebują odmawiają wyniku zamiast zwracać liczbę, której nikt nie wybrał. Wpisz",
+      "configExplain2Suffix": "jako stawkę VAT, jeśli Twoje koszty rzeczywiście nie zawierają VAT.",
+      "alertBothMissing": "Nie ustawiono jeszcze stawki VAT ani domyślnej waluty. Nie da się wyliczyć kosztu brutto, marży ani progu rentowności, a zapis kosztu bez podanej wprost waluty zostanie odrzucony, dopóki oba pola nie zostaną uzupełnione poniżej.",
+      "alertVatMissing": "Nie ustawiono jeszcze stawki VAT, więc nie da się wyliczyć kosztu brutto, marży ani progu rentowności. Uzupełnij ją poniżej - wpisz 0, jeśli Twoje koszty nie zawierają VAT.",
+      "alertCurrencyMissing": "Nie ustawiono jeszcze domyślnej waluty, więc zapis kosztu bez podanej wprost waluty zostanie odrzucony. Uzupełnij ją poniżej.",
+      "vatRateLabel": "Stawka VAT (%)",
+      "vatRatePlaceholder": "np. 20",
+      "currencyLabel": "Domyślna waluta",
+      "selectCurrencyPlaceholder": "Wybierz walutę",
+      "save": "Zapisz",
+      "csvHeading": "Import zbiorczy (CSV)",
+      "resyncButton": "Zsynchronizuj powiązania wariantów",
+      "csvHelp": "Dwie kolumny: sku i koszt netto. Akceptowane są cudzysłowy, średnik „;” jako separator oraz przecinek dziesiętny - dokładny format opisuje README.",
+      "csvPlaceholderNote": "akceptuje też ; jako separator i 20,00 jako zapis dziesiętny z przecinkiem",
+      "import": "Importuj",
+      "uploadInstead": "Wgraj plik zamiast tego",
+      "importErrorsHeading": "Liczba niezaimportowanych wierszy: {{count}}",
+      "importErrorLinePrefix": "Wiersz"
+    },
+    "catalogColumn": {
+      "header": "Koszt",
+      "error": "błąd",
+      "notCosted": "brak kosztu",
+      "noVatRateSet": "brak stawki VAT",
+      "inclVat": "z VAT"
+    }
+  }
+}
