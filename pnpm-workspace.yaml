@@ -1,7 +1,11 @@
+# pnpm 11 refuses to run a dependency's build scripts unless it is listed here.
+# The admin-kit entry is what lets a git-hosted package be prepared at all; the
+# rest are the native builds a Medusa install performs anyway, and pnpm treats
+# them as an error rather than a warning once this file exists.
 allowBuilds:
-  '@medusajs/telemetry': set this to true or false
-  '@swc/core': set this to true or false
   "@zanreal/medusa-admin-kit@https://codeload.github.com/zanreal-labs/medusa-admin-kit/tar.gz/7cfa268f1f2067e628d97da2cc1724e722d410a5": true
-  esbuild: set this to true or false
-  msgpackr-extract: set this to true or false
-  protobufjs: set this to true or false
+  "@medusajs/telemetry": true
+  "@swc/core": true
+  esbuild: true
+  msgpackr-extract: true
+  protobufjs: true
