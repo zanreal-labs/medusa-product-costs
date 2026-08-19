@@ -1,0 +1,154 @@
+---
+title: Overview
+description: Purchase cost (COGS) per SKU for Medusa v2 - a curated net cost, an append-only history of every change, and margin, break-even and net income derived from it without a single guessed input.
+---
+
+`@zanreal/medusa-product-costs` is a Medusa v2 plugin that answers the one
+question the Pricing module cannot: what did this cost you? It stores a net
+purchase cost per SKU, keeps every change to that cost forever, and turns the
+number into gross cost, net income, break-even price and margin.
+
+Medusa knows what you sell something for. Nothing in core, and nothing in the
+plugin registry, tracks what you paid for it, so the margin a buyer actually
+wants to see lives in a spreadsheet next to the admin instead of inside it. This
+plugin is that spreadsheet, moved into the database and given an audit trail.
+
+## The one rule everything follows
+
+**A figure that depends on a value you have not supplied comes back
+`undefined`, never `0`.**
+
+That sounds like a small implementation detail. It is the whole design. A
+missing cost coerced to zero does not produce an error, it produces a margin of
+100 percent, on a screen an operator is about to make a pricing decision from. So
+no cost on file means `grossCost`, `netIncome`, `breakEvenPrice` and `marginPct`
+are all absent. No selling price means `netIncome` and `marginPct` are absent
+while `grossCost` and `breakEvenPrice`, which do not need one, still compute.
+
+The same refusal applies to configuration. The plugin ships **no default VAT
+rate and no default currency**, because both are facts about the market you
+trade in and this package cannot know either one. Until you set them, the
+operations that need them refuse and name the setting they are missing. See
+[Settings and the admin API](./settings.en.mdx).
+
+## The shape of it
+
+```text
+  operator                    this plugin                        your decision
+  --------                    -----------                        -------------
+  types a cost   ->  upsertCost(sku, net)
+  or imports CSV ->      |
+                         +-> CostPrice           (one row per SKU, the truth)
+                         +-> CostPriceHistory    (append-only, never rewritten)
+                         +-> variant link        (a read convenience, resolved from SKU)
+
+  asks for margin ->  computeEconomics({ sku, sellingPrice, commissionRate })
+                         |
+                         +-> grossCost, netIncome, breakEvenPrice, marginPct
+                                        |
+                                        +-> you price the product
+```
+
+Four commitments hold it together:
+
+1. **The SKU is the durable key, not the variant.** `CostPrice.sku` is unique
+   and owns the row. `variant_id` is a denormalized cache of whichever product
+   variant currently carries that SKU. Delete a variant and recreate it and the
+   cost is still there, waiting to be re-pointed. See [Costs, history and the
+   variant link](./costs.en.mdx).
+2. **History is append-only, and that is enforced in code.** Medusa's
+   `MedusaService` generates update, delete, soft-delete and restore mutators for
+   every model it is handed. The service overrides all four on the history model
+   to throw, because a documented contract nobody enforces is a comment.
+3. **Cost and history are written in one transaction.** A cost is never
+   persisted without the history row that explains it, even if the process dies
+   between the two writes.
+4. **Nothing is rounded twice.** Gross cost feeds net income and break-even
+   unrounded, and each output rounds itself once. Rounding the intermediate first
+   lands break-even a cent below the true floor, which is the unsafe direction
+   for a number that tells you what you must not sell below. See [Margin,
+   break-even and the math](./economics.en.mdx).
+
+## Install
+
+This package is not on npm yet. It installs as a git dependency pinned to a
+commit:
+
+```jsonc title="package.json"
+{
+  "dependencies": {
+    "@zanreal/medusa-product-costs": "github:zanreal-labs/medusa-product-costs#054f7a7cc08435e3cf16f7e173df66dfc87eb05d"
+  }
+}
+```
+
+Pin the commit you tested against. There is no published tag, so `#main` would
+move under you on the next push; a pinned commit means the same thing tomorrow
+that it means today.
+
+The package builds itself on install: `prepare` runs `medusa plugin:build`,
+which turns the checked-out source into the `.medusa/server` output its
+`exports` point at. pnpm 10 and newer will not run that script for a dependency
+it does not already trust, so allow it once in your own workspace file. This
+plugin also carries `@zanreal/medusa-admin-kit` as a dependency, for the Catalog
+column it contributes, and that one needs the same treatment:
+
+```yaml title="pnpm-workspace.yaml"
+allowBuilds:
+  "@zanreal/medusa-product-costs@https://codeload.github.com/zanreal-labs/medusa-product-costs/tar.gz/054f7a7cc08435e3cf16f7e173df66dfc87eb05d": true
+  "@zanreal/medusa-admin-kit@https://codeload.github.com/zanreal-labs/medusa-admin-kit/tar.gz/7cfa268f1f2067e628d97da2cc1724e722d410a5": true
+```
+
+Each key is the exact tarball URL pnpm resolves the pinned commit to, which is
+why it repeats the SHA from the dependency line. Move the pin and you move both.
+
+Then register the plugin:
+
+```ts title="medusa-config.ts"
+module.exports = defineConfig({
+  plugins: [
+    {
+      resolve: "@zanreal/medusa-product-costs",
+      options: {
+        vatRate: 0.23,
+        defaultCurrency: "PLN",
+      },
+    },
+  ],
+});
+```
+
+Both options are optional here and can be set from the admin instead. What they
+cannot be is skipped in both places and still expected to work: see [Settings
+and the admin API](./settings.en.mdx) for exactly what refuses and what it says
+when it does.
+
+Then run the migrations it ships:
+
+```bash
+npx medusa db:migrate
+```
+
+## Recording your first cost
+
+```ts
+import { PRODUCT_COSTS_MODULE } from "@zanreal/medusa-product-costs/modules/product-costs";
+import type { ProductCostsModuleService } from "@zanreal/medusa-product-costs/modules/product-costs";
+
+const costs = container.resolve<ProductCostsModuleService>(PRODUCT_COSTS_MODULE);
+
+await costs.upsertCost("SKU-1", 33.62, { source: "api" });
+
+await costs.computeEconomics({ sku: "SKU-1", sellingPrice: 79.9, commissionRate: 0.1 });
+// { grossCost: 41.35, netIncome: 30.56, breakEvenPrice: 45.95, marginPct: 0.3824... }
+```
+
+`upsertCost` canonicalizes the amount to two decimal places at the write
+boundary, so every stored cost, typed or imported, has exactly the same shape.
+It writes a history row on both the create and the update branch: there is no
+no-op fast path, because "the cost was re-saved unchanged on the 14th" is
+itself a fact worth keeping.
+
+Most of the time nobody calls this from code. An operator types a cost into the
+widget on the product detail page, or drops a file into the bulk importer. See
+[Bulk import from CSV](./import.en.mdx).

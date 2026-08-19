@@ -1,0 +1,124 @@
+---
+title: Margin, break-even and the math
+description: The four figures this plugin derives, exactly which inputs each one needs, why a missing input yields nothing rather than zero, and the double-rounding bug the implementation is written to avoid.
+---
+
+`computeEconomics` is the reason the costs are stored in the first place. It is a
+pure function in `src/modules/product-costs/lib/economics.ts` with no I/O, and the
+module service wraps it with the one thing it cannot do for itself: resolving the
+VAT rate.
+
+## The four outputs
+
+```text
+grossCost      = netCost * (1 + vatRate)
+netIncome      = sellingPrice - sellingPrice * commissionRate - grossCost
+breakEvenPrice = grossCost / (1 - commissionRate)
+marginPct      = netIncome / sellingPrice
+```
+
+| Output | Needs | Rounding |
+| --- | --- | --- |
+| `grossCost` | `netCost`, `vatRate` | 2 places, half-up |
+| `netIncome` | `sellingPrice`, `grossCost` | 2 places, half-up |
+| `breakEvenPrice` | `grossCost`, `commissionRate < 1` | 2 places, half-up |
+| `marginPct` | `netIncome`, `sellingPrice` not zero | none, deliberately |
+
+`breakEvenPrice` is the smallest gross selling price at which `netIncome`
+reaches zero. `commissionRate` is a fraction, so `0.1` is ten percent, and it
+defaults to `0`. That is the single input in the whole plugin with a real
+default, because "no marketplace cut" is a legitimate and common answer rather
+than a missing one.
+
+`marginPct` comes back unrounded, as a ratio: `0.3824` and not `38.24`. It is
+not a money amount, and rounding a ratio to two decimal places would throw away
+exactly the precision a caller wants when formatting it as `38.2%`. Round it
+where you display it.
+
+## Missing inputs produce nothing, not zero
+
+This is worth stating one case at a time, because the difference between
+`undefined` and `0` is the difference between a blank cell and a confidently
+wrong number.
+
+- **No cost on file for the SKU.** All four are `undefined`. They are not
+  computed as though the cost were zero, which would show every product as pure
+  profit.
+- **No selling price.** `netIncome` and `marginPct` are `undefined`. `grossCost`
+  and `breakEvenPrice` do not depend on a selling price and still compute, which
+  is what makes break-even useful before you have picked a price at all.
+- **`commissionRate` at or above 1.** `breakEvenPrice` is `undefined`: a
+  commission that consumes the entire price leaves no finite price at which
+  anything survives. `netIncome` still computes, and comes out very negative,
+  because it is well defined even at absurd rates.
+- **`sellingPrice` of exactly zero.** `marginPct` is `undefined` rather than a
+  division by zero.
+
+None of this is enforced by validation that throws. It is the return shape, so a
+caller that forgets to check gets a blank rather than a fabrication.
+
+## The VAT rate is resolved, never assumed
+
+The pure function takes `vatRate` as a required number. Supplying it is the
+service's job, and it resolves in this order:
+
+1. `input.vatRate`, if the caller passed one. This is for a one-off "what if"
+   calculation and wins over everything.
+2. The persisted override saved from **Settings > Product costs**.
+3. The `vatRate` option from `medusa-config.ts`.
+
+If none of the three produces a rate, `computeEconomics` throws a `NOT_ALLOWED`
+error carrying `VAT_RATE_NOT_CONFIGURED_MESSAGE`, which names the setting and
+tells you that entering `0` is a valid answer if your costs genuinely carry no
+VAT.
+
+Refusing is the deliberate choice here. Returning a figure worked out from an
+invented rate would be worse than an error, because a break-even number is read
+as authoritative and nothing on the screen would reveal that the rate behind it
+was made up. Because resolution happens per call rather than at boot, changing
+the rate in the admin changes the next calculation, with no restart.
+
+## Why nothing is rounded twice
+
+This is the subtlest thing in the plugin, and it is load-bearing.
+
+`grossCostUnrounded` is computed once and fed to `netIncome` and
+`breakEvenPrice` as is. Each output then rounds itself, once, from that same
+unrounded value. The naive alternative, rounding gross cost first and dividing
+the rounded figure, lands a cent off:
+
+```text
+netCost 33.62, vatRate 0.23, commissionRate 0.1
+
+  unrounded gross  41.3526
+  rounded first    41.35 / 0.9 = 45.9444  ->  45.94   wrong
+  rounded once     41.3526 / 0.9 = 45.9473 ->  45.95   correct
+```
+
+A cent is not much, but the direction is what matters: the double-rounded answer
+sits *below* the true break-even, and break-even is a floor. A price floor that
+is a cent too low is the unsafe kind of wrong.
+
+The half-up rounding itself lives in `round2` in `lib/money.ts`, which biases by
+`Number.EPSILON` so that binary floating point does not tie-to-even a value like
+`1.005` down to `1.00`. Every money figure in the plugin goes through it,
+including the canonicalization on write, so the rounding strategy cannot drift
+between the importer, the service and this calculator.
+
+## Calling it
+
+```ts
+await costs.computeEconomics({
+  sku: "SKU-1",         // looked up when netCost is not given directly
+  sellingPrice: 79.9,
+  commissionRate: 0.1,
+  vatRate: 0.08,        // optional, overrides the configured rate for this call
+});
+```
+
+Pass `netCost` instead of `sku` to skip the lookup entirely, which is what the
+admin widget does while an operator is still typing a figure they have not
+saved. That is also why the same pure function is imported directly by the
+product-detail widget: the gross-cost preview it shows has to agree with what
+the server would compute, and the only way to guarantee that is to run the same
+code.

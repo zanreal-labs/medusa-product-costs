@@ -1,0 +1,166 @@
+---
+title: Ustawienia i API panelu
+description: "Dwie opcje modułu, dlaczego żadna nie ma wartości domyślnej, jak zapisany singleton nadpisuje je bez restartu oraz komplet tras administracyjnych."
+---
+
+## Dwie opcje
+
+```ts title="medusa-config.ts"
+{
+  resolve: "@zanreal/medusa-product-costs",
+  options: {
+    vatRate: 0.23,
+    defaultCurrency: "PLN",
+  },
+}
+```
+
+| Opcja | Typ | Domyślnie | Do czego służy |
+| --- | --- | --- | --- |
+| `vatRate` | `number` | brak | Stawka, którą koszt netto jest podnoszony do brutto, jako ułamek. `0.23` to 23 procent, `0` to brak. |
+| `defaultCurrency` | `string` | brak | Kod ISO-4217, w którym zapisywany jest koszt, gdy wywołujący nie poda własnego. Przycinany i podnoszony do wielkich liter przy odczycie. |
+
+Obie są w `medusa-config.ts` opcjonalne i obie są **bez wartości domyślnej**. To
+nie jest przeoczenie i warto powiedzieć wprost, co Cię to kosztuje.
+
+Stawka VAT wpływa na koszt brutto, marżę i próg rentowności. Wartość domyślna w
+pakiecie byłaby stawką z cudzego rynku, po cichu przesuwającą podłogę cenową, o
+której ta wtyczka mówi Ci, że nie wolno pod nią zejść, w Twoim własnym panelu i
+bez żadnego śladu na ekranie. Z walutą jest gorzej, tylko inaczej: zgadnięta
+błędnie opisuje każdy zapisany koszt, a potem nic dalej w systemie nie odróżni
+źle opisanego wiersza od poprawnego.
+
+Dlatego dopóki każda z nich nie zostanie ustawiona, w `medusa-config.ts` albo w
+panelu, operacje które jej potrzebują odmawiają i nazywają ją po imieniu:
+
+- `computeEconomics` rzuca `NOT_ALLOWED` z `VAT_RATE_NOT_CONFIGURED_MESSAGE`;
+- `upsertCost` rzuca `NOT_ALLOWED` z `CURRENCY_NOT_CONFIGURED_MESSAGE`, jeśli
+  wywołujący też nie podał waluty.
+
+Oba komunikaty są eksportowanymi stałymi, więc każda ścieżka odmowy mówi to samo
+i nie mają jak się rozjechać. Oba przypominają, że `0` jest poprawną odpowiedzią
+w sprawie VAT-u, jeśli Twoje koszty faktycznie go nie niosą. I o to właśnie
+chodzi: wpisanie zera jest decyzją i zostaje zapisane jako decyzja.
+
+## Zapisany singleton
+
+`ProductCostsSettings` to dokładnie jeden wiersz, pod stałym identyfikatorem
+`pcset_singleton`. Powstaje leniwie, przy pierwszym odczycie, z obiema kolumnami
+`null`, więc sklep, który nigdy nie otworzył strony ustawień, zachowuje się
+dokładnie tak, jak zachowywał się zanim ta strona w ogóle powstała, czyli
+wyłącznie według `medusa-config.ts`.
+
+`null` znaczy „nie nadpisano tutaj". Nie znaczy zero i nigdy nie jest do zera
+sprowadzane przy zapisie. `getResolvedOptions()` ustala każde pole osobno, przy
+odczycie:
+
+```text
+efektywne vatRate         = settings.vat_rate         ?? moduleOptions.vatRate
+efektywne defaultCurrency = settings.default_currency ?? moduleOptions.defaultCurrency
+```
+
+Każde z nich dalej może wyjść jako `null`, czyli „nieustawione nigdzie". To
+prawdziwy stan, który API świadomie przepuszcza zamiast go zamalować, bo to
+właśnie on każe stronie ustawień pokazać puste pole i ostrzeżenie zamiast liczby,
+której nikt nie wybrał.
+
+Utrzymanie tego rozróżnienia daje jeszcze jedną korzyść. Sklep, który nigdy nic
+nie nadpisał, podłapie zmianę w `medusa-config.ts` przy najbliższym wdrożeniu, a
+sklep, który nadpisał, zostaje przy swoim. Zapisana stawka `0` to świadome „bez
+VAT-u", a nie to samo co brak ustawienia, i te dwa stany zachowują się inaczej
+już na zawsze.
+
+Każdy odczyt w czasie działania idzie przez `getResolvedOptions()`, nigdy przez
+wartość złapaną przy starcie, więc zmiana zapisana w panelu działa od następnego
+wywołania, bez restartu.
+
+Singleton jest odporny na równoległy pierwszy odczyt: przegrany wyścigu o
+wstawienie odczytuje ponownie wiersz zwycięzcy spod stałego identyfikatora,
+zamiast zakładać drugi.
+
+## Powierzchnie w panelu
+
+**Settings > Product costs** trzyma stawkę VAT, domyślną walutę, pole do wklejenia
+CSV oraz akcję **Resync links**. To jedyne miejsce, w którym te dwa ustawienia
+zmienia się bez ponownego wdrożenia.
+
+**Strona produktu** to miejsce, w którym koszt faktycznie się ustawia. Widget
+pokazuje bieżący koszt netto wariantu, podgląd brutto na żywo i pełną historię
+zmian w szufladzie. Podgląd importuje ten sam `computeEconomics`, którego używa
+serwer, więc to, co operator widzi w trakcie wpisywania, jest tym, co zostanie
+zapisane.
+
+**Tabela katalogu** dostaje kolumnę z kosztem per wariant, dokładaną do rejestru
+`@zanreal/medusa-admin-kit`. Rejestracja dzieje się w momencie ewaluacji modułu,
+na najwyższym poziomie pliku widgetu, a nie w ciele komponentu, bo build panelu
+statycznie wciąga wszystkie widgety do `virtual:medusa/widgets`, a dashboard
+ewaluuje to raz przy starcie. Kolumna musi istnieć, zanim ktokolwiek wejdzie do
+katalogu. Samo pobranie kosztu to wywołanie sieciowe kluczowane po SKU wiersza,
+więc idzie przez `loadData`, a nie przez `cell`. Wariant bez SKU nigdy nie
+odpytuje sieci.
+
+## Trasy
+
+Wszystkie trasy siedzą pod `/admin/product-costs` i korzystają ze standardowego
+uwierzytelniania panelu Medusy.
+
+### `GET /admin/product-costs`
+
+Lista wycenionych kosztów. `q` dopasowuje fragment SKU bez rozróżniania wielkości
+liter, `sku` można powtórzyć (`?sku=A&sku=B`) po konkretny zestaw. `limit`
+domyślnie 20, twardy sufit 500, `offset` domyślnie 0. Wartość ujemna albo
+nieliczbowa w którymkolwiek z nich to `400`, a nie ciche przycięcie.
+
+```jsonc
+{ "cost_prices": [ /* ... */ ], "count": 812, "limit": 20, "offset": 0 }
+```
+
+### `POST /admin/product-costs`
+
+Ciało `{ sku, unit_cost_net, currency?, note? }`. `source` domyślnie
+`"manual"`. `unit_cost_net` musi być dodatnie i nie większe niż 1 000 000,
+`currency` musi być trzyliterowym kodem ISO-4217. Zwraca zapisany wiersz oraz
+`duplicate_variant_matches`, różne od zera, gdy to SKU pasuje w tej chwili do
+więcej niż jednego wariantu.
+
+### `GET /admin/product-costs/:sku/history`
+
+Ślad audytowy jednego SKU, od najnowszego. `limit` domyślnie 50, sufit 500.
+
+### `GET /admin/product-costs/config`
+
+Rozwiązana konfiguracja wraz z informacją, czy dane pole pochodzi z nadpisania:
+
+```jsonc
+{
+  "vatRate": 0.23,
+  "vatRateOverridden": true,
+  "defaultCurrency": "PLN",
+  "defaultCurrencyOverridden": false
+}
+```
+
+`null` w `vatRate` albo `defaultCurrency` dociera do klienta nietknięte.
+
+### `POST /admin/product-costs/config`
+
+Ciało `{ vat_rate?, default_currency? }`. Zapisywane są wyłącznie klucze obecne w
+żądaniu, więc zapis jednego nie rusza drugiego. Podanie klucza jako `null`
+czyści nadpisanie z powrotem do opcji z `medusa-config.ts`, co jest prawdziwą
+akcją, a nie tym samym co pominięcie klucza. Jeśli wtyczkę zainstalowano też bez
+tej opcji, wyczyszczenie zostawia ustawienie faktycznie puste.
+
+`vat_rate` musi być liczbą z przedziału od 0 do 1, bo to ułamek.
+`default_currency` musi być kodem trzyliterowym. Nieznany klucz albo ciało bez
+choćby jednego zapisywalnego klucza kończy się `INVALID_DATA` z wyliczeniem
+kluczy, które wolno zapisać.
+
+### `POST /admin/product-costs/import`
+
+Ciało `{ csv }`. Zobacz [Import zbiorczy z CSV](./import.pl.mdx).
+
+### `POST /admin/product-costs/resync-links`
+
+Naprawia powiązanie z wariantem dla wszystkich wycenionych kosztów, nie tylko dla
+ostatnio ruszanych. Zwraca `{ changed, skusChecked, duplicateSkus }`. Zobacz
+[Koszty, historia i powiązanie z wariantem](./costs.pl.mdx).

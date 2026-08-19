@@ -54,13 +54,35 @@ the point you display it.
 
 ## Install
 
-```bash
-npm install @zanreal/medusa-product-costs
-# or
-pnpm add @zanreal/medusa-product-costs
-# or
-yarn add @zanreal/medusa-product-costs
+This package is not on npm yet. It installs as a git dependency, pinned to a commit:
+
+```jsonc
+// package.json
+{
+  "dependencies": {
+    "@zanreal/medusa-product-costs": "github:zanreal-labs/medusa-product-costs#054f7a7cc08435e3cf16f7e173df66dfc87eb05d"
+  }
+}
 ```
+
+Pin the commit you tested against. There is no published tag yet, so `#main` would move under
+you on the next push to the repository.
+
+The package builds itself on install - `prepare` runs `medusa plugin:build`, which turns the
+checked-out source into the `.medusa/server` output its `exports` point at. pnpm 10 and newer
+refuse to run that script for a dependency they do not already trust, so allow it once in your
+own workspace file. This plugin also carries `@zanreal/medusa-admin-kit` (for the Catalog column
+it contributes), which needs the same treatment:
+
+```yaml
+# pnpm-workspace.yaml
+allowBuilds:
+  "@zanreal/medusa-product-costs@https://codeload.github.com/zanreal-labs/medusa-product-costs/tar.gz/054f7a7cc08435e3cf16f7e173df66dfc87eb05d": true
+  "@zanreal/medusa-admin-kit@https://codeload.github.com/zanreal-labs/medusa-admin-kit/tar.gz/7cfa268f1f2067e628d97da2cc1724e722d410a5": true
+```
+
+Each key is the exact tarball URL pnpm resolves the pinned commit to, which is why it repeats
+the SHA from the dependency line - move the pin and you move both.
 
 Register it as a plugin in your Medusa app's `medusa-config.ts`:
 

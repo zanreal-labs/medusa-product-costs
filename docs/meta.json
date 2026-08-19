@@ -1,0 +1,5 @@
+{
+  "title": "@zanreal/medusa-product-costs",
+  "description": "Purchase cost (COGS) per SKU for Medusa v2, with an append-only history and margin, break-even and net income derived from it.",
+  "pages": ["index", "costs", "economics", "import", "settings"]
+}

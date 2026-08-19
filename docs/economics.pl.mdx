@@ -1,0 +1,125 @@
+---
+title: Marża, próg rentowności i matematyka
+description: "Cztery liczby, które wtyczka wyprowadza z kosztu, komplet wejść potrzebnych do każdej z nich, dlaczego brak wejścia daje pustkę zamiast zera i jakiego podwójnego zaokrąglenia unika implementacja."
+---
+
+`computeEconomics` jest powodem, dla którego w ogóle warto trzymać te koszty. To
+czysta funkcja w `src/modules/product-costs/lib/economics.ts`, bez żadnego I/O,
+którą serwis modułu opakowuje w jedyną rzecz, jakiej nie da się zrobić samemu:
+ustalenie stawki VAT.
+
+## Cztery wyniki
+
+```text
+grossCost      = netCost * (1 + vatRate)
+netIncome      = sellingPrice - sellingPrice * commissionRate - grossCost
+breakEvenPrice = grossCost / (1 - commissionRate)
+marginPct      = netIncome / sellingPrice
+```
+
+| Wynik | Czego wymaga | Zaokrąglenie |
+| --- | --- | --- |
+| `grossCost` | `netCost`, `vatRate` | 2 miejsca, w górę przy połówce |
+| `netIncome` | `sellingPrice`, `grossCost` | 2 miejsca, w górę przy połówce |
+| `breakEvenPrice` | `grossCost`, `commissionRate < 1` | 2 miejsca, w górę przy połówce |
+| `marginPct` | `netIncome`, `sellingPrice` różne od zera | brak, celowo |
+
+`breakEvenPrice` to najniższa cena brutto, przy której `netIncome` dochodzi do
+zera. `commissionRate` jest ułamkiem, więc `0.1` znaczy dziesięć procent, a
+domyślnie wynosi `0`. To jedyne wejście w całej wtyczce z prawdziwą wartością
+domyślną, bo „brak prowizji marketplace" jest sensowną i częstą odpowiedzią, a
+nie brakiem odpowiedzi.
+
+`marginPct` wraca niezaokrąglona, jako stosunek: `0.3824`, a nie `38.24`. To nie
+jest kwota pieniężna, a zaokrąglenie stosunku do dwóch miejsc wyrzuciłoby
+dokładnie tę precyzję, której potrzebujesz, żeby wypisać `38,2%`. Zaokrąglaj to
+w miejscu wyświetlania.
+
+## Brak wejścia daje pustkę, nie zero
+
+Warto przejść przez to przypadek po przypadku, bo różnica między `undefined` a
+`0` to różnica między pustą komórką a liczbą pewną siebie i błędną.
+
+- **Brak kosztu dla danego SKU.** Wszystkie cztery wyniki są `undefined`. Nie są
+  liczone tak, jakby koszt wynosił zero, bo wtedy każdy produkt wyglądałby na
+  czysty zysk.
+- **Brak ceny sprzedaży.** `netIncome` i `marginPct` są `undefined`. `grossCost`
+  i `breakEvenPrice` nie zależą od ceny sprzedaży i dalej się liczą, i właśnie
+  dlatego próg rentowności jest użyteczny, zanim jakąkolwiek cenę ustalisz.
+- **`commissionRate` równe 1 albo wyższe.** `breakEvenPrice` jest `undefined`:
+  prowizja pochłaniająca całą cenę nie zostawia żadnej skończonej ceny, przy
+  której cokolwiek zostaje. `netIncome` dalej się liczy i wychodzi mocno na
+  minusie, bo jest dobrze określony nawet przy absurdalnych stawkach.
+- **`sellingPrice` równe dokładnie zero.** `marginPct` jest `undefined`, zamiast
+  dzielenia przez zero.
+
+Żaden z tych przypadków nie jest pilnowany walidacją rzucającą wyjątek. To
+kształt zwracanej wartości, więc wywołujący, który zapomni sprawdzić, dostaje
+pustkę, a nie zmyśloną liczbę.
+
+## Stawka VAT jest ustalana, nigdy zakładana
+
+Czysta funkcja przyjmuje `vatRate` jako wymaganą liczbę. Dostarczenie jej to
+zadanie serwisu, który ustala ją w tej kolejności:
+
+1. `input.vatRate`, jeśli wywołujący go podał. To wariant „a gdyby" dla
+   jednorazowego wyliczenia i wygrywa ze wszystkim.
+2. Zapisane nadpisanie ze strony **Settings > Product costs**.
+3. Opcja `vatRate` z `medusa-config.ts`.
+
+Jeżeli żadne z trzech nie da stawki, `computeEconomics` rzuca błędem
+`NOT_ALLOWED` z treścią `VAT_RATE_NOT_CONFIGURED_MESSAGE`, która nazywa
+brakujące ustawienie i przypomina, że `0` jest poprawną odpowiedzią, jeśli Twoje
+koszty faktycznie nie niosą VAT-u.
+
+Odmowa jest tu wyborem świadomym. Zwrócenie liczby policzonej ze zmyślonej
+stawki byłoby gorsze od błędu, bo próg rentowności czyta się jako wiążący, a nic
+na ekranie nie zdradziłoby, że stawka pod spodem została wymyślona. Ponieważ
+ustalanie dzieje się przy każdym wywołaniu, a nie przy starcie, zmiana stawki w
+panelu działa od następnego wyliczenia, bez restartu.
+
+## Dlaczego nic nie jest zaokrąglane dwa razy
+
+To najsubtelniejsza rzecz w tej wtyczce i naprawdę nośna.
+
+`grossCostUnrounded` liczy się raz i wchodzi do `netIncome` oraz
+`breakEvenPrice` bez zmian. Dopiero każdy wynik zaokrągla się sam, jeden raz, z
+tej samej niezaokrąglonej wartości. Naiwna alternatywa, czyli zaokrąglić koszt
+brutto i dzielić już zaokrągloną liczbę, wypada o grosz obok:
+
+```text
+netCost 33,62, vatRate 0,23, commissionRate 0,1
+
+  brutto niezaokrąglone   41,3526
+  zaokrąglone najpierw    41,35 / 0,9 = 45,9444   ->  45,94   źle
+  zaokrąglone raz         41,3526 / 0,9 = 45,9473 ->  45,95   dobrze
+```
+
+Grosz to niewiele, ale liczy się kierunek: wynik podwójnie zaokrąglony leży
+*poniżej* prawdziwego progu rentowności, a próg to podłoga cenowa. Podłoga o
+grosz za nisko to ten niebezpieczny rodzaj błędu.
+
+Samo zaokrąglanie w górę przy połówce siedzi w `round2` w `lib/money.ts`, które
+przesuwa wartość o `Number.EPSILON`, żeby binarna zmiennoprzecinkowość nie
+zaokrągliła `1.005` do `1.00` regułą do parzystej. Każda kwota w tej wtyczce
+przechodzi przez tę funkcję, łącznie ze sprowadzeniem do postaci kanonicznej
+przy zapisie, więc strategia zaokrąglania nie ma jak się rozjechać między
+importerem, serwisem i tym kalkulatorem.
+
+## Wywołanie
+
+```ts
+await koszty.computeEconomics({
+  sku: "SKU-1",         // wyszukiwane, gdy nie podasz netCost wprost
+  sellingPrice: 79.9,
+  commissionRate: 0.1,
+  vatRate: 0.08,        // opcjonalne, nadpisuje ustawioną stawkę na to jedno wyliczenie
+});
+```
+
+Podaj `netCost` zamiast `sku`, żeby całkiem pominąć wyszukiwanie. Dokładnie tak
+robi widget w panelu, kiedy operator dopiero wpisuje kwotę, której jeszcze nie
+zapisał. To też powód, dla którego ta sama czysta funkcja jest importowana wprost
+przez widget na stronie produktu: podgląd kosztu brutto musi zgadzać się z tym,
+co policzyłby serwer, a jedyny sposób, żeby to zagwarantować, to puścić ten sam
+kod.
