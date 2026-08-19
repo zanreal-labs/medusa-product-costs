@@ -479,7 +479,13 @@ const ProductCostsSettingsPage = () => {
 };
 
 export const config = defineRouteConfig({
-  label: "Product costs",
+  // A translation key, not a literal: the dashboard resolves it with
+  // `t(label, { ns: translationNs })`. This plugin registers its strings in the
+  // default `translation` namespace, and the dashboard's `fallbackNS` is that
+  // namespace, so the prefixed key resolves through it. The settings entry and the
+  // page heading deliberately read the same key and cannot drift apart.
+  label: "productCosts.settings.heading",
+  translationNs: "productCosts",
 });
 
 export default ProductCostsSettingsPage;
