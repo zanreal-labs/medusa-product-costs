@@ -1,0 +1,116 @@
+---
+title: Bulk import from CSV
+description: The two-column file the importer accepts, how it works out the delimiter and the decimal separator without asking, what it refuses to guess, and why link resolution is deferred to a second pass.
+---
+
+Operators do not type in three thousand costs. They export a file from a
+supplier and paste it in. `POST /admin/product-costs/import` takes
+`{ csv: "sku,cost\n..." }` and the Settings page wraps that in a text area.
+
+## The file
+
+Two columns, `sku` and `cost`. A header row is optional: a row whose first field
+is literally `sku`, in any case, is skipped without being reported as an error.
+Blank lines are ignored silently. Everything else that will not parse is
+reported with its original line number, so an operator can find it in their own
+file rather than in a re-serialized copy of it.
+
+All of these are the same row:
+
+```csv
+SKU-1,64.35
+SKU-1;64,35
+"SKU-1";"64,35 zl"
+SKU-1;1 234,56
+```
+
+The importer is deliberately tolerant, because the file comes from a supplier
+who did not consult you about their locale.
+
+- **Delimiter**: `,` or `;`, sniffed from the first non-blank line.
+- **Decimals**: a comma or a dot. `64,35` and `64.35` both mean the same thing.
+- **Thousands grouping**: spaces, dots or commas. `1 234,56` and `1.234,56` both
+  parse to `1234.56`.
+- **Quoted fields**: honoured, including doubled `""` as a literal quote and
+  delimiters inside the quotes.
+- **Currency noise**: stripped. `64,35 zl` parses.
+
+`parseMoney` handles the ambiguous case by position: when a field contains both
+a comma and a dot, the right-most one is the decimal separator and the other one
+groups thousands. A value that does not come out finite and strictly positive is
+not a cost, and the line is reported.
+
+## The one thing it refuses to guess
+
+Delimiter sniffing counts unquoted separators in the first non-blank line, and a
+strict majority wins. When it ties, the tie is broken by which reading actually
+produces a plausible `sku,cost` split: exactly two fields, with the second one
+looking like a real money value. A field that still contains a semicolon never
+qualifies, because no supported locale puts one inside a number, so its presence
+is the tell that the delimiter guess split the line in the wrong place.
+
+If *both* readings look equally plausible, the importer stops. It does not pick
+one. The whole file is rejected with a single error on that line telling you to
+add a header row, whose own delimiter is unambiguous, to settle it:
+
+```text
+Cannot determine the delimiter - the line contains both ',' and ';' and both
+readings look like a valid sku,cost row. Add a header row (e.g. "sku;cost") to
+disambiguate.
+```
+
+Guessing here would silently import every cost in the file under the wrong
+column split, which is exactly the sort of quiet, catalogue-wide damage this
+plugin exists to avoid.
+
+## Duplicates inside one file
+
+A SKU appearing more than once is not an error. The **last occurrence wins**,
+matching what a re-saved spreadsheet does, and each earlier occurrence counts
+towards `skipped`. Only the winning row is applied, so a repeated SKU produces
+one cost and one history row, not several.
+
+## What comes back
+
+```jsonc
+{
+  "created": 128,       // SKUs that had no cost before
+  "updated": 41,        // SKUs whose cost was replaced
+  "skipped": 3,         // earlier occurrences of a duplicated SKU
+  "errors": [           // unparsable lines, plus any row that failed to persist
+    { "lineNumber": 57, "raw": "SKU-9,", "reason": "Missing or invalid cost" }
+  ],
+  "duplicateSkus": {}   // SKUs matching more than one product variant
+}
+```
+
+`errors` carries both kinds of failure. A line that could not be parsed lands
+there from the parser, and a row that parsed cleanly but failed to persist, most
+often because no currency is configured anywhere, is appended with the service's
+own message. Nothing vanishes silently, and one bad row does not abort the
+import: every other row is still applied.
+
+Each imported row goes through the same `upsertCost` a manual save does, so the
+same rules apply. The cost is rounded to two places, and a history row is
+written with `source: "csv"` and the calling actor's id in `changed_by`.
+
+## Why links are resolved afterwards
+
+A single manual save resolves the SKU's product variant inline, inside the same
+workflow. The importer does not. It persists every cost first, then makes one
+batched call to `syncCostPriceVariantLinksWorkflow` with the list of SKUs it
+actually touched.
+
+The reason is arithmetic. Resolving per row means one query against the Product
+module per row; a three-thousand-row file would issue three thousand queries to
+learn something a single query can answer. The batched pass runs one lookup for
+the whole set, then a single write pass over only the `CostPrice` rows whose
+`variant_id` genuinely changed.
+
+The trade is a short window where a freshly imported cost exists without its
+variant link. Nothing reads incorrectly during it, because the link is a read
+convenience and the SKU is the key. See [Costs, history and the variant
+link](./costs.en.mdx).
+
+For a very large file even the second pass is worth moving to a background job.
+That has not been done, and it is the honest limit of the current import path.

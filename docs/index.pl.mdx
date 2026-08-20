@@ -1,0 +1,154 @@
+---
+title: Wprowadzenie
+description: "Koszt zakupu (COGS) na SKU dla Medusy v2 - jedna wyceniona kwota netto, pełna historia jej zmian oraz marża, próg rentowności i wynik liczone bez ani jednego zgadniętego założenia."
+---
+
+Medusa wie, za ile sprzedajesz. Nie wie, ile Cię to kosztowało. Przez tę jedną
+lukę marża prawie zawsze ląduje w arkuszu obok panelu: ktoś przepisuje ceny,
+dokleja kolumnę z kosztem zakupu, liczy różnicę i podejmuje na tej podstawie
+decyzję cenową. Arkusz nie ma historii, nie ma audytu i rozjeżdża się z panelem
+tego samego dnia, w którym powstał.
+
+`@zanreal/medusa-product-costs` przenosi ten arkusz do bazy. Trzyma koszt zakupu
+netto per SKU, zapamiętuje każdą jego zmianę na zawsze i wylicza z niego koszt
+brutto, wynik na sprzedaży, próg rentowności i marżę.
+
+## Czego ta wtyczka nie zrobi
+
+Nie zgadnie za Ciebie ani jednej liczby.
+
+Jeśli dla danego SKU nie ma kosztu, to `grossCost`, `netIncome`, `breakEvenPrice`
+i `marginPct` wracają jako `undefined`. Nie jako zero. Brakujący koszt
+potraktowany jak zero nie wywala błędu, tylko pokazuje marżę 100 procent, na
+ekranie, z którego ktoś za chwilę ustawi cenę. To jest dokładnie ten rodzaj
+cichej pomyłki, przed którym cała ta wtyczka ma bronić.
+
+Ta sama zasada dotyczy konfiguracji. Pakiet nie niesie **żadnej domyślnej stawki
+VAT ani domyślnej waluty**, bo jedno i drugie to fakt o rynku, na którym
+handlujesz, a tego pakiet nie ma skąd wiedzieć. Dopóki ich nie ustawisz, operacje
+które ich potrzebują odmawiają i mówią wprost, czego brakuje. Szczegóły w
+[Ustawieniach i API panelu](./settings.pl.mdx).
+
+## Cztery decyzje, na których to stoi
+
+1. **Kluczem jest SKU, nie wariant.** Kolumna `CostPrice.sku` jest unikalna i to
+   ona jest właścicielem wiersza. `variant_id` to tylko zdenormalizowany cache
+   wariantu, który akurat nosi to SKU. Skasuj wariant i utwórz go na nowo, a
+   koszt nadal tam jest i czeka na ponowne podpięcie. Zobacz [Koszty, historia i
+   powiązanie z wariantem](./costs.pl.mdx).
+2. **Historia jest tylko do dopisywania i jest to wymuszone w kodzie.**
+   `MedusaService` sam dorabia metody update, delete, soft-delete i restore do
+   każdego modelu, który dostanie. Serwis nadpisuje wszystkie cztery na modelu
+   historii tak, żeby rzucały wyjątkiem. Kontrakt, którego nikt nie pilnuje, to
+   tylko komentarz.
+3. **Koszt i historia zapisują się w jednej transakcji.** Koszt nigdy nie trafia
+   do bazy bez wiersza historii, który go tłumaczy, nawet jeśli proces padnie
+   między jednym zapisem a drugim.
+4. **Nic nie jest zaokrąglane dwa razy.** Koszt brutto wchodzi do wyniku i progu
+   rentowności niezaokrąglony, a każdy wynik zaokrągla się raz, sam. Zaokrąglenie
+   po drodze potrafi ustawić próg rentowności o grosz za nisko, czyli w stronę
+   niebezpieczną dla liczby, która mówi „poniżej tego nie schodź". Zobacz [Marża,
+   próg rentowności i matematyka](./economics.pl.mdx).
+
+## Jak to wygląda w praktyce
+
+```text
+  operator                    ta wtyczka                        Twoja decyzja
+  --------                    ----------                        -------------
+  wpisuje koszt  ->  upsertCost(sku, netto)
+  albo wgrywa CSV ->     |
+                         +-> CostPrice           (jeden wiersz na SKU, źródło prawdy)
+                         +-> CostPriceHistory    (dopisywanie, bez nadpisań)
+                         +-> powiązanie          (wygoda odczytu, wyliczone z SKU)
+
+  pyta o marżę   ->  computeEconomics({ sku, sellingPrice, commissionRate })
+                         |
+                         +-> koszt brutto, wynik, próg rentowności, marża
+                                        |
+                                        +-> ustawiasz cenę
+```
+
+## Instalacja
+
+Tego pakietu nie ma jeszcze na npmie. Instaluje się go jako zależność gitową,
+przypiętą do konkretnego commitu:
+
+```jsonc title="package.json"
+{
+  "dependencies": {
+    "@zanreal/medusa-product-costs": "github:zanreal-labs/medusa-product-costs#054f7a7cc08435e3cf16f7e173df66dfc87eb05d"
+  }
+}
+```
+
+Przypnij commit, na którym faktycznie testowałeś. Nie ma jeszcze wydanego taga,
+więc `#main` przesunąłby się pod Tobą przy najbliższym pushu. Przypięty commit
+znaczy jutro to samo, co dzisiaj.
+
+Pakiet buduje się sam przy instalacji: `prepare` odpala `medusa plugin:build`,
+który zamienia pobrane źródła w katalog `.medusa/server`, na który wskazuje
+`exports`. pnpm 10 i nowsze domyślnie nie uruchamiają takiego skryptu dla
+zależności, której jeszcze nie ufają, więc trzeba go raz dopuścić u siebie. Ta
+wtyczka ciągnie za sobą jeszcze `@zanreal/medusa-admin-kit`, bo dokłada kolumnę
+do katalogu w panelu, i on wymaga tego samego:
+
+```yaml title="pnpm-workspace.yaml"
+allowBuilds:
+  "@zanreal/medusa-product-costs@https://codeload.github.com/zanreal-labs/medusa-product-costs/tar.gz/054f7a7cc08435e3cf16f7e173df66dfc87eb05d": true
+  "@zanreal/medusa-admin-kit@https://codeload.github.com/zanreal-labs/medusa-admin-kit/tar.gz/7cfa268f1f2067e628d97da2cc1724e722d410a5": true
+```
+
+Każdy klucz to dokładny adres archiwum, na które pnpm rozwiązuje przypięty
+commit, dlatego powtarza SHA z linii zależności. Przesuwasz pin, przesuwasz oba
+miejsca naraz.
+
+Potem rejestrujesz wtyczkę:
+
+```ts title="medusa-config.ts"
+module.exports = defineConfig({
+  plugins: [
+    {
+      resolve: "@zanreal/medusa-product-costs",
+      options: {
+        vatRate: 0.23,
+        defaultCurrency: "PLN",
+      },
+    },
+  ],
+});
+```
+
+Obie opcje możesz tu pominąć i ustawić je zamiast tego w panelu. Czego nie
+możesz, to pominąć ich w obu miejscach i liczyć, że coś policzy. W
+[Ustawieniach](./settings.pl.mdx) opisane jest dokładnie, co wtedy odmawia i co
+wypisuje.
+
+Na koniec migracje, które pakiet ze sobą niesie:
+
+```bash
+npx medusa db:migrate
+```
+
+## Pierwszy koszt
+
+```ts
+import { PRODUCT_COSTS_MODULE } from "@zanreal/medusa-product-costs/modules/product-costs";
+import type { ProductCostsModuleService } from "@zanreal/medusa-product-costs/modules/product-costs";
+
+const koszty = container.resolve<ProductCostsModuleService>(PRODUCT_COSTS_MODULE);
+
+await koszty.upsertCost("SKU-1", 120, { source: "api", note: "dostawa marcowa" });
+
+await koszty.computeEconomics({ sku: "SKU-1", sellingPrice: 199, commissionRate: 0 });
+// { grossCost: 147.6, netIncome: 51.4, breakEvenPrice: 147.6, marginPct: 0.2582... }
+```
+
+`upsertCost` sprowadza kwotę do dwóch miejsc po przecinku już na granicy zapisu,
+więc każdy koszt w bazie, wpisany ręcznie czy zaimportowany, ma tę samą postać.
+Wiersz historii powstaje na obu ścieżkach, przy tworzeniu i przy aktualizacji.
+Nie ma tu skrótu „nic się nie zmieniło, to nie zapisuję", bo sam fakt, że ktoś
+14-go potwierdził tę samą kwotę, też jest informacją.
+
+W codziennej pracy nikt tego nie woła z kodu. Operator wpisuje koszt w widgecie
+na stronie produktu albo wrzuca plik do importu. Zobacz [Import zbiorczy z
+CSV](./import.pl.mdx).

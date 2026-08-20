@@ -1,0 +1,139 @@
+---
+title: Costs, history and the variant link
+description: How a cost is stored, why the SKU owns the row instead of the variant, what makes the audit trail genuinely append-only, and when the variant link needs a resync.
+---
+
+There are three tables and one rule about which of them is allowed to be wrong.
+
+| Table | What it holds | Can it be stale? |
+| --- | --- | --- |
+| `cost_price` | One curated net cost per SKU. `sku` is unique. | No. This is the truth. |
+| `cost_price_history` | Every cost that SKU has ever had. | No. It is never rewritten. |
+| the module link | A row joining a `CostPrice` to a product variant. | Yes, and that is fine. |
+
+## Why the SKU owns the row
+
+`CostPrice.variant_id` exists, and there is a Medusa module link pointing at the
+product variant, but neither is the key. `sku` is, and it carries a unique
+constraint.
+
+The reason is what happens in a real catalogue. Variants get deleted and
+recreated during a re-import. A SKU moves from one variant to another when a
+product is restructured. If the cost hung off `variant_id`, every one of those
+ordinary operations would orphan it, and the operator would find out by seeing a
+margin column go blank on a product they never touched.
+
+Hanging it off the SKU inverts that. The cost survives everything the Product
+module does. `variant_id` is a denormalized cache, re-resolved from the SKU
+whenever the plugin has reason to, and a `null` in it means only "no variant
+currently carries this SKU", which is a perfectly normal state. You can curate a
+cost for something you have not created a product for yet.
+
+### Resolution is deterministic, and duplicates are surfaced
+
+Nothing in Medusa enforces SKU uniqueness across variants at the database level,
+so more than one variant can end up carrying the same one. When that happens
+`resolveVariantIdBySku` sorts by `id` ascending and takes the first, so the same
+variant wins on every run rather than whichever one the database happened to
+return first.
+
+It does not stop there. The count of *other* matching variants comes back as
+`duplicateMatches` and is passed all the way out to the API response, as
+`duplicate_variant_matches` on a single save and `duplicateSkus` on an import or
+a resync. A silently resolved anomaly is still an anomaly, and an operator gets
+to see it.
+
+## When the link needs a resync
+
+The link carries `deleteCascade: true` on the product-variant side, so deleting
+a variant removes the link row. It does not repair `CostPrice.variant_id`, which
+is a plain column on this module's own table and outside the link's reach.
+
+Three situations leave the cache pointing at nothing useful:
+
+- a variant was deleted and recreated, so the SKU now belongs to a new id;
+- a SKU was moved to a different variant outside this plugin;
+- a variant's SKU was renamed in the Product module, which this plugin cannot
+  follow, because `CostPrice.sku` is the key it matches on.
+
+All three are fixed the same way: run **Resync links** on the Settings page, or
+`POST /admin/product-costs/resync-links`. That walks every `CostPrice` row in
+pages of 500, re-resolves each SKU against the Product module in one batched
+query, and writes only the rows whose `variant_id` actually changed. A rename
+still needs the cost re-saved or re-imported under the new SKU first: the resync
+repairs a link, it does not guess that two different SKUs are the same product.
+
+Saving a single cost and importing a CSV both keep the link in step already. The
+difference is timing: a single save resolves the variant inline, in the same
+workflow, while an import defers resolution to one bulk pass over every SKU it
+touched. See [Bulk import from CSV](./import.en.mdx).
+
+## The append-only history, and why it is not just a comment
+
+Every create and every update writes a `cost_price_history` row, carrying the
+amount, the currency, the `source` (`manual`, `csv` or `api`), the Medusa actor
+id in `changed_by` when there is one, and the timestamp. There is no fast path
+that skips the write when the amount has not changed, because "someone re-saved
+this unchanged on the 14th" is itself part of the record.
+
+Both writes happen inside one transaction, opened by
+`@InjectTransactionManager` on `upsertCost_`. If the history write fails after
+the cost write succeeded, both roll back. A cost is never persisted without the
+row that explains where it came from.
+
+The interesting part is the enforcement. `MedusaService({ CostPrice,
+CostPriceHistory, ProductCostsSettings })` auto-generates a full mutator set for
+every model it is handed, history included, so out of the box nothing stops a
+caller from rewriting or thinning the audit trail. The service therefore
+overrides four of them to throw:
+
+```ts
+updateCostPriceHistories    // throws
+deleteCostPriceHistories    // throws
+softDeleteCostPriceHistories // throws
+restoreCostPriceHistories   // throws
+```
+
+`createCostPriceHistories` and every read method are untouched and behave
+normally. The four are declared as arrow-function properties rather than
+methods, because `MedusaService` types those members as call-signature
+properties on the base class and TypeScript refuses a method overriding a
+property.
+
+Read the history with `GET /admin/product-costs/:sku/history`, newest first,
+`limit` defaulting to 50 and capped at 500. A negative or non-numeric `limit` or
+`offset` is rejected with a `400` rather than quietly clamped, so a client-side
+bug shows up as an error instead of as a short page.
+
+## Writing a cost
+
+```ts
+await costs.upsertCost("SKU-1", 33.62, {
+  source: "manual",
+  currency: "PLN",     // optional; falls back to the configured default
+  note: "March delivery",
+  changedBy: actorId,  // recorded on the history row
+  variantId: null,     // omit the key to leave it untouched, pass null to clear
+});
+```
+
+A few things are enforced at this boundary rather than left to callers:
+
+- The SKU is trimmed, and an empty one is an `INVALID_DATA` error.
+- The cost must be finite and strictly positive. Zero is not a cost.
+- The amount is rounded to two places here, at the single point every write
+  passes through, including every row of a CSV import. That is what guarantees
+  every stored `unit_cost_net` has the same shape.
+- The currency comes from `input.currency`, then from the resolved settings. If
+  neither supplies one, the write refuses rather than storing a number whose
+  meaning nobody recorded. See [Settings and the admin API](./settings.en.mdx).
+
+`variantId` uses key presence, not value, to decide intent: omit the key and the
+existing link is left alone, pass `null` and it is deliberately cleared.
+
+Over HTTP the same write is `POST /admin/product-costs` with `{ sku,
+unit_cost_net, currency?, note? }`. `source` defaults to `"manual"` there, since
+the operator UI is the only caller that leaves it out. The route caps
+`unit_cost_net` at 1,000,000 as a guard against a fat-fingered value, and
+requires `currency` to be a three-letter ISO-4217 code, uppercased before it is
+checked.

@@ -1,0 +1,5 @@
+{
+  "title": "@zanreal/medusa-product-costs",
+  "description": "Koszt zakupu (COGS) na SKU dla Medusy v2, z historią tylko do dopisywania oraz marżą, progiem rentowności i wynikiem liczonymi z tego kosztu.",
+  "pages": ["index", "costs", "economics", "import", "settings"]
+}

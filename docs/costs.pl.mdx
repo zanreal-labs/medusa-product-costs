@@ -1,0 +1,144 @@
+---
+title: Koszty, historia i powiązanie z wariantem
+description: "Jak przechowywany jest koszt, dlaczego wierszem rządzi SKU a nie wariant, co naprawdę wymusza niezmienność audytu i kiedy powiązanie z wariantem trzeba odświeżyć."
+---
+
+Wtyczka trzyma trzy tabele i ma jedną zasadę mówiącą, której z nich wolno się
+rozjechać z rzeczywistością.
+
+| Tabela | Co trzyma | Może być nieaktualna? |
+| --- | --- | --- |
+| `cost_price` | Jeden wyceniony koszt netto na SKU. `sku` jest unikalne. | Nie. To jest źródło prawdy. |
+| `cost_price_history` | Każdy koszt, jaki to SKU kiedykolwiek miało. | Nie. Nigdy nie jest nadpisywana. |
+| powiązanie modułowe | Wiersz łączący `CostPrice` z wariantem produktu. | Tak, i to jest w porządku. |
+
+## Dlaczego wierszem rządzi SKU
+
+Kolumna `CostPrice.variant_id` istnieje, istnieje też medusowe powiązanie
+modułowe wskazujące na wariant produktu, ale żadne z nich nie jest kluczem.
+Kluczem jest `sku` i to ono ma ograniczenie unikalności.
+
+Powód widać dopiero na żywym katalogu. Warianty znikają i pojawiają się na nowo
+przy każdym większym imporcie. SKU wędruje z wariantu na wariant, kiedy ktoś
+przebudowuje produkt. Gdyby koszt wisiał na `variant_id`, każda z tych zwyczajnych
+operacji zostawiałaby go bez właściciela, a operator dowiedziałby się o tym
+wtedy, gdy kolumna z marżą zrobi się pusta przy produkcie, którego nikt nie
+dotykał.
+
+Zaczepienie kosztu o SKU odwraca tę zależność. Koszt przeżywa wszystko, co robi
+moduł produktów. `variant_id` jest tylko cache'em, wyliczanym z SKU wtedy, kiedy
+wtyczka ma po temu powód, a `null` w tej kolumnie znaczy wyłącznie tyle, że
+żaden wariant akurat nie nosi tego SKU. To normalny stan. Możesz wycenić coś,
+czego produktu jeszcze nie założyłeś.
+
+### Rozwiązanie SKU jest deterministyczne, a duplikaty widoczne
+
+Medusa nie wymusza na poziomie bazy unikalności SKU między wariantami, więc
+zdarza się, że to samo SKU nosi więcej niż jeden wariant. W takiej sytuacji
+`resolveVariantIdBySku` sortuje po `id` rosnąco i bierze pierwszy, dzięki czemu
+za każdym uruchomieniem wygrywa ten sam wariant, a nie ten, który baza akurat
+zwróciła jako pierwszy.
+
+I na tym się nie kończy. Liczba *pozostałych* pasujących wariantów wraca jako
+`duplicateMatches` i jest przepychana aż do odpowiedzi API: jako
+`duplicate_variant_matches` przy pojedynczym zapisie i jako `duplicateSkus`
+przy imporcie oraz przy odświeżeniu powiązań. Anomalia rozstrzygnięta po cichu
+dalej jest anomalią i operator ma prawo ją zobaczyć.
+
+## Kiedy powiązanie wymaga odświeżenia
+
+Powiązanie ma po stronie wariantu `deleteCascade: true`, więc skasowanie
+wariantu usuwa wiersz powiązania. Nie naprawia to jednak `CostPrice.variant_id`,
+bo to zwykła kolumna w tabeli tego modułu, poza zasięgiem powiązania.
+
+Trzy sytuacje zostawiają cache wskazujący donikąd:
+
+- wariant został skasowany i utworzony na nowo, więc SKU należy teraz do nowego id;
+- SKU zostało przypisane do innego wariantu poza tą wtyczką;
+- ktoś zmienił SKU wariantu w module produktów, za czym ta wtyczka nie nadąży,
+  bo `CostPrice.sku` jest właśnie tym kluczem, po którym dopasowuje.
+
+Wszystkie trzy naprawia się tak samo: przyciskiem **Resync links** na stronie
+ustawień albo wywołaniem `POST /admin/product-costs/resync-links`. Endpoint
+przechodzi po wszystkich wierszach `CostPrice` stronami po 500, rozwiązuje
+komplet SKU jednym zbiorczym zapytaniem do modułu produktów i zapisuje tylko te
+wiersze, w których `variant_id` faktycznie się zmienił. Zmiana samego SKU wymaga
+najpierw ponownego zapisu albo importu pod nową wartością: odświeżenie naprawia
+powiązanie, ale nie zgadnie, że dwa różne SKU to ten sam produkt.
+
+Zwykły zapis pojedynczego kosztu i import CSV utrzymują powiązanie na bieżąco.
+Różni je moment: pojedynczy zapis rozwiązuje wariant od razu, w tym samym
+przepływie, a import odkłada to na jedno zbiorcze przejście po wszystkich
+dotkniętych SKU. Zobacz [Import zbiorczy z CSV](./import.pl.mdx).
+
+## Historia tylko do dopisywania, i dlaczego to nie jest tylko komentarz
+
+Każde utworzenie i każda aktualizacja dopisuje wiersz do `cost_price_history`:
+kwota, waluta, `source` (`manual`, `csv` albo `api`), identyfikator aktora
+Medusy w `changed_by`, jeśli jakiś był, oraz znacznik czasu. Nie ma skrótu
+pomijającego zapis, gdy kwota się nie zmieniła, bo „ktoś potwierdził tę samą
+kwotę 14-go" też jest częścią zapisu.
+
+Oba zapisy dzieją się w jednej transakcji, otwieranej przez
+`@InjectTransactionManager` na `upsertCost_`. Jeśli zapis historii padnie już po
+udanym zapisie kosztu, cofa się jedno i drugie. Koszt nigdy nie zostaje w bazie
+bez wiersza, który tłumaczy, skąd się wziął.
+
+Najciekawsze jest jednak samo egzekwowanie tej zasady. `MedusaService({
+CostPrice, CostPriceHistory, ProductCostsSettings })` dorabia pełny zestaw metod
+modyfikujących do każdego modelu, który dostanie, więc domyślnie nic nie broni
+przed przepisaniem albo przerzedzeniem audytu. Dlatego serwis nadpisuje cztery z
+nich tak, żeby rzucały wyjątkiem:
+
+```ts
+updateCostPriceHistories     // rzuca
+deleteCostPriceHistories     // rzuca
+softDeleteCostPriceHistories // rzuca
+restoreCostPriceHistories    // rzuca
+```
+
+`createCostPriceHistories` i wszystkie metody odczytu zostają nietknięte i
+działają normalnie. Te cztery są zadeklarowane jako właściwości z funkcją
+strzałkową, a nie jako metody, bo `MedusaService` typuje je w klasie bazowej
+jako właściwości z sygnaturą wywołania, a TypeScript nie pozwala nadpisać
+właściwości metodą.
+
+Historię czyta się przez `GET /admin/product-costs/:sku/history`, od najnowszej,
+z `limit` domyślnie 50 i twardym sufitem 500. Ujemny albo nieliczbowy `limit`
+czy `offset` kończy się kodem `400`, a nie cichym przycięciem do zera, żeby błąd
+po stronie klienta objawił się jako błąd, a nie jako krótsza strona wyników.
+
+## Zapis kosztu
+
+```ts
+await koszty.upsertCost("SKU-1", 33.62, {
+  source: "manual",
+  currency: "PLN",     // opcjonalne, w razie braku schodzi do ustawionej domyślnej
+  note: "dostawa marcowa",
+  changedBy: actorId,  // ląduje w wierszu historii
+  variantId: null,     // pomiń klucz, żeby nie ruszać; podaj null, żeby wyczyścić
+});
+```
+
+Kilka rzeczy jest pilnowanych właśnie tutaj, a nie zostawionych wywołującemu:
+
+- SKU jest przycinane, a puste kończy się błędem `INVALID_DATA`.
+- Koszt musi być skończony i dodatni. Zero nie jest kosztem.
+- Kwota jest zaokrąglana do dwóch miejsc w tym jednym punkcie, przez który
+  przechodzi każdy zapis, łącznie z każdym wierszem importu CSV. To właśnie
+  gwarantuje, że wszystkie `unit_cost_net` w bazie mają tę samą postać.
+- Waluta bierze się z `input.currency`, a w razie braku z rozwiązanych ustawień.
+  Jeśli nie poda jej ani jedno, ani drugie, zapis odmawia zamiast zapisać liczbę,
+  której znaczenia nikt nie odnotował. Zobacz [Ustawienia i API
+  panelu](./settings.pl.mdx).
+
+O intencji przy `variantId` decyduje obecność klucza, nie jego wartość: pomiń
+klucz, a dotychczasowe powiązanie zostaje nietknięte; podaj `null`, a zostanie
+świadomie wyczyszczone.
+
+Po HTTP ten sam zapis to `POST /admin/product-costs` z ciałem `{ sku,
+unit_cost_net, currency?, note? }`. `source` przyjmuje tam domyślnie
+`"manual"`, bo panel operatora jest jedynym wywołującym, który go nie podaje.
+Endpoint ogranicza `unit_cost_net` do 1 000 000 jako zabezpieczenie przed
+pomyłką w klawiaturze i wymaga, żeby `currency` była trzyliterowym kodem
+ISO-4217, sprowadzanym do wielkich liter przed sprawdzeniem.

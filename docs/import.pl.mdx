@@ -1,0 +1,122 @@
+---
+title: Import zbiorczy z CSV
+description: "Dwukolumnowy plik, który przyjmuje importer, jak sam rozpoznaje separator i część dziesiętną, czego świadomie nie zgaduje i dlaczego powiązania z wariantami rozwiązuje dopiero w drugim przebiegu."
+---
+
+Nikt nie wklepuje trzech tysięcy kosztów ręcznie. Operator eksportuje plik od
+dostawcy i wkleja go w całości. `POST /admin/product-costs/import` przyjmuje
+`{ csv: "sku,koszt\n..." }`, a strona ustawień opakowuje to w zwykłe pole
+tekstowe.
+
+## Plik
+
+Dwie kolumny: `sku` i koszt. Wiersz nagłówka jest opcjonalny. Wiersz, którego
+pierwsze pole to dosłownie `sku`, niezależnie od wielkości liter, jest
+pomijany i nie liczy się jako błąd. Puste linie znikają po cichu. Wszystko inne,
+czego nie da się sparsować, wraca z oryginalnym numerem linii, żeby operator
+znalazł to w swoim własnym pliku, a nie w jego przepisanej kopii.
+
+Wszystkie poniższe zapisy to ten sam wiersz:
+
+```csv
+SKU-1,64.35
+SKU-1;64,35
+"SKU-1";"64,35 zl"
+SKU-1;1 234,56
+```
+
+Importer jest celowo pobłażliwy, bo plik przychodzi od dostawcy, który nie
+konsultował z Tobą swoich ustawień regionalnych.
+
+- **Separator kolumn**: `,` albo `;`, wykrywany z pierwszej niepustej linii.
+- **Część dziesiętna**: przecinek albo kropka. `64,35` i `64.35` znaczą to samo.
+- **Grupowanie tysięcy**: spacje, kropki albo przecinki. `1 234,56` i `1.234,56`
+  dają `1234.56`.
+- **Pola w cudzysłowach**: obsługiwane, razem z podwojonym `""` jako znakiem
+  cudzysłowu i separatorami w środku cudzysłowu.
+- **Śmieci walutowe**: usuwane. `64,35 zl` przechodzi.
+
+Przypadek naprawdę dwuznaczny `parseMoney` rozstrzyga pozycją: gdy w polu jest i
+przecinek, i kropka, ten z prawej jest separatorem dziesiętnym, a drugi grupuje
+tysiące. Wartość, która nie wyjdzie skończona i dodatnia, nie jest kosztem, a
+linia trafia do błędów.
+
+## Jedyna rzecz, której importer nie zgadnie
+
+Wykrywanie separatora liczy niezacytowane znaki rozdzielające w pierwszej
+niepustej linii i wygrywa ścisła większość. Przy remisie rozstrzyga to, który
+odczyt daje wiarygodny podział na `sku` i koszt: dokładnie dwa pola, przy czym
+drugie wygląda na prawdziwą kwotę. Pole, w którym dalej siedzi średnik, nigdy
+się nie kwalifikuje, bo żadne obsługiwane ustawienia regionalne nie wstawiają go
+w liczbę. Jego obecność to sygnał, że zgadnięty separator pociął linię w złym
+miejscu.
+
+Jeśli *oba* odczyty wyglądają równie wiarygodnie, importer się zatrzymuje. Nie
+wybiera żadnego. Cały plik zostaje odrzucony z jednym błędem na tej linii, który
+podpowiada dopisanie wiersza nagłówka, bo jego własny separator jest już
+jednoznaczny:
+
+```text
+Cannot determine the delimiter - the line contains both ',' and ';' and both
+readings look like a valid sku,cost row. Add a header row (e.g. "sku;cost") to
+disambiguate.
+```
+
+Zgadywanie w tym miejscu zaimportowałoby po cichu cały plik w złym podziale
+kolumn, a to dokładnie ten rodzaj cichej szkody na całym katalogu, przed którym
+ta wtyczka ma bronić.
+
+## Powtórzone SKU w jednym pliku
+
+To samo SKU występujące kilka razy nie jest błędem. **Wygrywa ostatnie
+wystąpienie**, tak jak przy ponownym zapisie arkusza, a każde wcześniejsze
+zlicza się do `skipped`. Stosowany jest tylko zwycięski wiersz, więc powtórzone
+SKU daje jeden koszt i jeden wiersz historii, a nie kilka.
+
+## Co wraca
+
+```jsonc
+{
+  "created": 128,       // SKU, które wcześniej nie miały kosztu
+  "updated": 41,        // SKU, którym koszt podmieniono
+  "skipped": 3,         // wcześniejsze wystąpienia powtórzonego SKU
+  "errors": [           // linie nie do sparsowania i wiersze, których nie udało się zapisać
+    { "lineNumber": 57, "raw": "SKU-9,", "reason": "Missing or invalid cost" }
+  ],
+  "duplicateSkus": {}   // SKU pasujące do więcej niż jednego wariantu
+}
+```
+
+W `errors` lądują oba rodzaje niepowodzeń. Linia, której nie dało się sparsować,
+trafia tam z parsera, a wiersz sparsowany poprawnie, ale niezapisany, najczęściej
+dlatego, że nigdzie nie ustawiono waluty, jest dopisywany z komunikatem samego
+serwisu. Nic nie znika po cichu, a jeden zły wiersz nie przerywa importu:
+wszystkie pozostałe i tak zostają zastosowane.
+
+Każdy importowany wiersz idzie przez ten sam `upsertCost`, co zapis ręczny, więc
+obowiązują te same reguły. Koszt jest zaokrąglany do dwóch miejsc, a wiersz
+historii powstaje z `source: "csv"` i identyfikatorem wywołującego aktora w
+`changed_by`.
+
+## Dlaczego powiązania rozwiązują się później
+
+Pojedynczy zapis ręczny rozwiązuje wariant dla danego SKU od razu, w tym samym
+przepływie. Import tego nie robi. Najpierw zapisuje wszystkie koszty, a potem
+wykonuje jedno zbiorcze wywołanie `syncCostPriceVariantLinksWorkflow` z listą
+SKU, których faktycznie dotknął.
+
+Powód jest arytmetyczny. Rozwiązywanie per wiersz to jedno zapytanie do modułu
+produktów na każdy wiersz. Plik z trzema tysiącami linii wysłałby trzy tysiące
+zapytań po informację, którą jedno zapytanie potrafi zwrócić w całości. Przebieg
+zbiorczy robi jedno wyszukanie dla całego zestawu, a potem jeden przebieg
+zapisu, obejmujący wyłącznie te wiersze `CostPrice`, w których `variant_id`
+naprawdę się zmienił.
+
+Ceną jest krótkie okno, w którym świeżo zaimportowany koszt istnieje bez
+powiązania z wariantem. Nic nie czyta się w tym czasie błędnie, bo powiązanie
+jest tylko wygodą przy odczycie, a kluczem pozostaje SKU. Zobacz [Koszty,
+historia i powiązanie z wariantem](./costs.pl.mdx).
+
+Przy naprawdę dużym pliku nawet ten drugi przebieg wypadałoby przenieść do
+zadania w tle. Nie zostało to zrobione i jest to uczciwa granica obecnej ścieżki
+importu.

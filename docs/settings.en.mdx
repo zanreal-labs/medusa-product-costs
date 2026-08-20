@@ -1,0 +1,163 @@
+---
+title: Settings and the admin API
+description: The two module options, why neither ships a default, how the persisted singleton overrides them without a restart, and a reference for every admin route.
+---
+
+## The two options
+
+```ts title="medusa-config.ts"
+{
+  resolve: "@zanreal/medusa-product-costs",
+  options: {
+    vatRate: 0.23,
+    defaultCurrency: "PLN",
+  },
+}
+```
+
+| Option | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `vatRate` | `number` | none | The rate a net cost is grossed up by, as a fraction. `0.23` is 23 percent, `0` is none. |
+| `defaultCurrency` | `string` | none | ISO-4217 code a cost is recorded in when the caller does not name one. Trimmed and uppercased on read. |
+
+Both are optional in `medusa-config.ts` and both are **without a default**.
+That is not an oversight, and it is worth being precise about what it costs you.
+
+A VAT rate flows into gross cost, margin and break-even. A shipped default would
+be some other market's rate quietly moving the price floor this plugin tells you
+not to sell below, inside your own admin, with nothing on screen admitting it. A
+currency is worse in a different way: a guessed one mislabels every stored cost,
+and afterwards nothing downstream can tell a mislabelled row from a correct one.
+
+So until each is set, in `medusa-config.ts` or in the admin, the operations
+needing it refuse and name it:
+
+- `computeEconomics` throws `NOT_ALLOWED` with `VAT_RATE_NOT_CONFIGURED_MESSAGE`.
+- `upsertCost` throws `NOT_ALLOWED` with `CURRENCY_NOT_CONFIGURED_MESSAGE` when
+  the caller did not pass a currency either.
+
+Both messages are exported constants, so every refusal path says the same thing
+and they cannot drift apart. Both tell you that `0` is a legitimate VAT answer if
+your costs genuinely carry none, which is the point: entering zero is a decision,
+and it gets recorded as one.
+
+## The persisted singleton
+
+`ProductCostsSettings` is exactly one row, under the fixed id
+`pcset_singleton`. It is created lazily on first read with both columns `null`,
+so a store that has never opened the Settings page behaves exactly as it did
+before that page existed, driven entirely by `medusa-config.ts`.
+
+`null` means "not overridden here". It does not mean zero, and it is never
+coerced to one at write time. `getResolvedOptions()` resolves each field
+separately at read time:
+
+```text
+effective vatRate         = settings.vat_rate         ?? moduleOptions.vatRate
+effective defaultCurrency = settings.default_currency ?? moduleOptions.defaultCurrency
+```
+
+Either can still come back `null`, meaning configured nowhere. That is a real
+state the API is careful to preserve rather than paper over, because it is what
+tells the Settings page to render a blank field and a warning instead of a
+number nobody chose.
+
+Keeping the distinction has a second payoff: a store that never overrode a
+setting still picks up a change to `medusa-config.ts` on the next deploy, while a
+store that did override it keeps its own value. A persisted `0` VAT rate is a
+deliberate "no VAT", not the same thing as unset, and the two behave differently
+forever.
+
+Every runtime read goes through `getResolvedOptions()`, never through a value
+captured at boot, so a change saved in the admin takes effect on the very next
+call with no restart.
+
+The singleton is safe against a concurrent first read: the loser of the insert
+race re-reads the winner's row under the fixed id rather than creating a second
+one.
+
+## Admin surfaces
+
+**Settings > Product costs** carries the VAT rate, the default currency, the CSV
+import text area, and the **Resync links** action. It is the only place the two
+settings can be edited without a redeploy.
+
+**The product detail page** is where a cost is actually set. The widget shows the
+variant's current net cost, a live gross preview, and the full change history in
+a drawer. The preview imports the same `computeEconomics` the server uses, so
+what an operator sees while typing is what will be stored.
+
+**The Catalog table** gets a per-variant cost column, contributed to
+`@zanreal/medusa-admin-kit`'s registry. Registration happens at module
+evaluation time, at the top level of the widget file rather than in a component
+body, because the admin build statically imports every widget into
+`virtual:medusa/widgets` and the dashboard evaluates that once at boot. The
+column has to exist before anyone can navigate to Catalog. The lookup is a
+network call keyed by the row's SKU, so it runs through `loadData` rather than
+`cell`, and a variant with no SKU never hits the network.
+
+## Route reference
+
+All routes sit under `/admin/product-costs` and use Medusa's standard admin
+authentication.
+
+### `GET /admin/product-costs`
+
+Lists curated costs. `q` does a case-insensitive substring match on the SKU;
+`sku` is repeatable (`?sku=A&sku=B`) for an exact set. `limit` defaults to 20 and
+is capped at 500, `offset` defaults to 0. A negative or non-numeric value for
+either is a `400` rather than a silent clamp.
+
+```jsonc
+{ "cost_prices": [ /* ... */ ], "count": 812, "limit": 20, "offset": 0 }
+```
+
+### `POST /admin/product-costs`
+
+Body `{ sku, unit_cost_net, currency?, note? }`. `source` defaults to
+`"manual"`. `unit_cost_net` must be positive and no greater than 1,000,000;
+`currency` must be a three-letter ISO-4217 code. Returns the stored row plus
+`duplicate_variant_matches`, non-zero when this SKU currently matches more than
+one variant.
+
+### `GET /admin/product-costs/:sku/history`
+
+The append-only trail for one SKU, newest first. `limit` defaults to 50, capped
+at 500.
+
+### `GET /admin/product-costs/config`
+
+The resolved configuration, plus whether each field came from an override:
+
+```jsonc
+{
+  "vatRate": 0.23,
+  "vatRateOverridden": true,
+  "defaultCurrency": "PLN",
+  "defaultCurrencyOverridden": false
+}
+```
+
+A `null` in `vatRate` or `defaultCurrency` reaches the client intact.
+
+### `POST /admin/product-costs/config`
+
+Body `{ vat_rate?, default_currency? }`. Only the keys present are written, so
+saving one never disturbs the other. Passing a key as `null` clears that override
+back to the `medusa-config.ts` option, which is a real action and not the same as
+omitting the key. If the plugin was installed without that option either,
+clearing leaves the setting genuinely unset.
+
+`vat_rate` must be a number between 0 and 1, since it is a fraction.
+`default_currency` must be a three-letter code. An unknown key, or a body with no
+writable key at all, is rejected as `INVALID_DATA` naming the writable keys.
+
+### `POST /admin/product-costs/import`
+
+Body `{ csv }`. See [Bulk import from CSV](./import.en.mdx).
+
+### `POST /admin/product-costs/resync-links`
+
+Repairs the variant link for every curated cost, not only recently touched ones.
+Returns `{ changed, skusChecked, duplicateSkus }`. See [Costs, history and the
+variant link](./costs.en.mdx).
