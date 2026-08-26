@@ -56,14 +56,6 @@ jobs:
       - name: Use npm 11
         run: npm install -g "npm@^11.5.1"
 
-      # @zanreal/medusa-admin-kit is declared as `github:zanreal-labs/...`, which
-      # pnpm resolves to the SSH form `git@github.com:`. The runner has no SSH
-      # key, so the clone fails with "Permission denied (publickey)" and the job
-      # dies at Install. The repository is public, so an anonymous HTTPS clone
-      # works and needs no credential. Same step, same reason, as in ci.yml.
-      - name: Clone git dependencies over HTTPS
-        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
-
       # pnpm warns twice here, "Failed to replace env in config:
       # ${NODE_AUTH_TOKEN}", because setup-node wrote an .npmrc templating that
       # variable and it is set only on the publish step. Leave the warning
