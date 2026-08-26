@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@zanreal/medusa-admin-kit':
-        specifier: github:zanreal-labs/medusa-admin-kit#7cfa268f1f2067e628d97da2cc1724e722d410a5
-        version: https://codeload.github.com/zanreal-labs/medusa-admin-kit/tar.gz/7cfa268f1f2067e628d97da2cc1724e722d410a5(@medusajs/admin-sdk@2.18.0)(@medusajs/admin-shared@2.18.0)(@medusajs/framework@2.18.0(@medusajs/cli@2.18.0(@types/node@20.19.43))(@types/node@20.19.43)(ioredis@5.11.1)(vite@5.4.21(@types/node@20.19.43))(zod@4.2.0))(@medusajs/icons@2.18.0(react@18.3.1))(@medusajs/js-sdk@2.18.0)(@medusajs/ui@4.2.0(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3))(react-dom@18.3.1(react@18.3.1))(react-i18next@13.5.0(i18next@23.7.11)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)
+        specifier: ^0.1.0
+        version: 0.1.0(@medusajs/admin-sdk@2.18.0)(@medusajs/admin-shared@2.18.0)(@medusajs/framework@2.18.0(@medusajs/cli@2.18.0(@types/node@20.19.43))(@types/node@20.19.43)(ioredis@5.11.1)(vite@5.4.21(@types/node@20.19.43))(zod@4.2.0))(@medusajs/icons@2.18.0(react@18.3.1))(@medusajs/js-sdk@2.18.0)(@medusajs/ui@4.2.0(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3))(react-dom@18.3.1(react@18.3.1))(react-i18next@13.5.0(i18next@23.7.11)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)
     devDependencies:
       '@medusajs/admin-sdk':
         specifier: 2.18.0
@@ -2869,9 +2869,8 @@ packages:
     resolution: {integrity: sha512-Nst5JdK47VIl9UcGwtv2Rcgyn5lWtZ0/mhRQ4G8NN2isxpq2TO30iqHzmwoJycjWuyUfg3GFXqP/gFHXeV57IA==}
     engines: {node: '>=16.0.0'}
 
-  '@zanreal/medusa-admin-kit@https://codeload.github.com/zanreal-labs/medusa-admin-kit/tar.gz/7cfa268f1f2067e628d97da2cc1724e722d410a5':
-    resolution: {gitHosted: true, integrity: sha512-I11xmofe0PDyBxCQZ8InWvFXnOeB0+t+cUqcljcMpxvPpT17HUYBAJLUE8sRkMN7Y6lFMiG00y2ST+N0lT8Ktw==, tarball: https://codeload.github.com/zanreal-labs/medusa-admin-kit/tar.gz/7cfa268f1f2067e628d97da2cc1724e722d410a5}
-    version: 0.1.0
+  '@zanreal/medusa-admin-kit@0.1.0':
+    resolution: {integrity: sha512-446Sr4tNwYnuwxZ+yva+rmykPpjFHjo/q3QemHSZA+Gqu9oFxEdu1Ek+NFEzgKYe2+0LIxW/2r5kFbXttoQk/Q==}
     engines: {node: '>=22.13'}
     peerDependencies:
       '@medusajs/admin-sdk': 2.18.0
@@ -3586,6 +3585,7 @@ packages:
   eslint@9.39.5:
     resolution: {integrity: sha512-DgZS62aPLXKlnxILS/AYCoRvHaZeXceIzlXPkkGGzJWSow1aEk0lbTlxUSlyjC8jcaKxAdOnTDz+o1JFSBsyjw==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+    deprecated: This version is no longer supported. Please see https://eslint.org/version-support for other options.
     hasBin: true
     peerDependencies:
       jiti: '*'
@@ -9242,7 +9242,7 @@ snapshots:
     dependencies:
       tslib: 2.6.3
 
-  '@zanreal/medusa-admin-kit@https://codeload.github.com/zanreal-labs/medusa-admin-kit/tar.gz/7cfa268f1f2067e628d97da2cc1724e722d410a5(@medusajs/admin-sdk@2.18.0)(@medusajs/admin-shared@2.18.0)(@medusajs/framework@2.18.0(@medusajs/cli@2.18.0(@types/node@20.19.43))(@types/node@20.19.43)(ioredis@5.11.1)(vite@5.4.21(@types/node@20.19.43))(zod@4.2.0))(@medusajs/icons@2.18.0(react@18.3.1))(@medusajs/js-sdk@2.18.0)(@medusajs/ui@4.2.0(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3))(react-dom@18.3.1(react@18.3.1))(react-i18next@13.5.0(i18next@23.7.11)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)':
+  '@zanreal/medusa-admin-kit@0.1.0(@medusajs/admin-sdk@2.18.0)(@medusajs/admin-shared@2.18.0)(@medusajs/framework@2.18.0(@medusajs/cli@2.18.0(@types/node@20.19.43))(@types/node@20.19.43)(ioredis@5.11.1)(vite@5.4.21(@types/node@20.19.43))(zod@4.2.0))(@medusajs/icons@2.18.0(react@18.3.1))(@medusajs/js-sdk@2.18.0)(@medusajs/ui@4.2.0(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3))(react-dom@18.3.1(react@18.3.1))(react-i18next@13.5.0(i18next@23.7.11)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)':
     dependencies:
       '@medusajs/admin-sdk': 2.18.0
       '@medusajs/admin-shared': 2.18.0
