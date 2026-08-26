@@ -6,7 +6,7 @@
     "medusa-plugin",
     "medusa-v2"
   ],
-  "homepage": "https://github.com/zanreal-labs/medusa-product-costs#readme",
+  "homepage": "https://zanreal.com/docs/oss/medusa-product-costs",
   "bugs": {
     "url": "https://github.com/zanreal-labs/medusa-product-costs/issues"
   },
@@ -24,7 +24,7 @@
     ".medusa/server"
   ],
   "dependencies": {
-    "@zanreal/medusa-admin-kit": "github:zanreal-labs/medusa-admin-kit#7cfa268f1f2067e628d97da2cc1724e722d410a5"
+    "@zanreal/medusa-admin-kit": "^0.1.0"
   },
   "exports": {
     "./package.json": "./package.json",

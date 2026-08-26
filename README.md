@@ -3,6 +3,9 @@
 A [Medusa v2](https://medusajs.com) plugin that tracks purchase cost (COGS) per SKU and computes
 margin, break-even price, and net income against a selling price.
 
+Full documentation, in English and Polish, is published at
+<https://zanreal.com/docs/oss/medusa-product-costs> and authored in [`docs/`](./docs).
+
 There is no cost/margin plugin in the Medusa ecosystem today. Medusa's Pricing module knows what
 you _sell_ something for; nothing in core or the plugin registry tracks what it _cost_ you, or
 turns that into a margin number. This plugin fills that gap: a small, standalone module for
