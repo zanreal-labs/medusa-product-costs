@@ -43,7 +43,10 @@
     "build": "medusa plugin:build",
     "dev": "medusa plugin:develop",
     "lint": "medusa lint",
-    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck:admin": "tsc --noEmit -p src/admin/tsconfig.json",
+    "test": "pnpm run typecheck && pnpm run typecheck:admin && vitest run",
+    "test:unit": "vitest run",
     "test:watch": "vitest",
     "prepare": "medusa plugin:build",
     "prepublishOnly": "medusa plugin:build"

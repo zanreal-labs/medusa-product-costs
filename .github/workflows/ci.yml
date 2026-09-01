@@ -27,11 +27,15 @@ jobs:
       - name: Lint
         run: pnpm exec medusa lint src
 
+      # Kept as their own steps so a failure names which tsconfig broke, but
+      # they run the package scripts rather than repeating the invocation:
+      # `pnpm test` runs the same two, so the thing CI checks is the thing a
+      # contributor can run.
       - name: Typecheck (backend)
-        run: pnpm exec tsc --noEmit -p tsconfig.json
+        run: pnpm run typecheck
 
       - name: Typecheck (admin)
-        run: pnpm exec tsc --noEmit -p src/admin/tsconfig.json
+        run: pnpm run typecheck:admin
 
       - name: Test
         run: pnpm test
