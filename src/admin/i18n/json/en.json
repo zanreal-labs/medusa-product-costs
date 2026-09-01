@@ -18,13 +18,11 @@
       "columns": {
         "variant": "Variant",
         "sku": "SKU",
-        "netCost": "Net cost",
+        "netCost": "Purchase cost",
         "grossCost": "Gross (incl. VAT)",
-        "margin": "Margin"
+        "srpMargin": "SRP margin"
       },
       "noSku": "no sku",
-      "atPrice": "at",
-      "setPriceToSeeMargin": "set a {{currency}} price to see margin",
       "save": "Save",
       "history": "History",
       "historyTitle": "Cost history for {{sku}}",
@@ -34,7 +32,10 @@
         "source": "Source",
         "changedBy": "Changed by",
         "changedAt": "Changed at"
-      }
+      },
+      "noCost": "no purchase cost",
+      "noSrp": "no SRP",
+      "noVatRate": "no VAT rate"
     },
     "settings": {
       "vatRateInvalid": "Enter a VAT rate between 0 and 100.",
@@ -75,11 +76,14 @@
       "importErrorLinePrefix": "Line"
     },
     "catalogColumn": {
-      "header": "Cost",
+      "header": "Purchase cost",
       "error": "error",
-      "notCosted": "not costed",
-      "noVatRateSet": "no VAT rate set",
-      "inclVat": "incl. VAT"
+      "srpMarginHeader": "SRP margin",
+      "loading": "...",
+      "noCost": "no purchase cost",
+      "noSrp": "no SRP",
+      "noVatRate": "no VAT rate",
+      "noSku": "no sku"
     }
   }
 }
