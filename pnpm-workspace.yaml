@@ -14,12 +14,14 @@ allowBuilds:
   protobufjs: true
 # pnpm 11 defaults minimumReleaseAge to 1440 minutes: it refuses to install a
 # version published less than 24 hours ago, because a malicious release is
-# usually pulled from the registry within the hour. admin-kit 0.1.0 was
-# published minutes before this lockfile was written, so pnpm added this
-# exclusion itself - without it `pnpm install --frozen-lockfile` fails on CI.
+# usually pulled from the registry within the hour. Each admin-kit version
+# listed here was published minutes before this lockfile was written, so pnpm
+# added the exclusion itself - without it `pnpm install --frozen-lockfile`
+# fails on CI.
 #
-# It stops being load-bearing 24 hours after admin-kit 0.1.0 was published and
-# can be deleted then. It is pinned to the exact version, so a later admin-kit
-# release is still held for the full cooldown.
+# Each entry stops being load-bearing 24 hours after that version was
+# published, and the whole list can go once the newest one is past its
+# cooldown. Versions are listed exactly, so an admin-kit release that is NOT
+# named here is still held for the full 24 hours.
 minimumReleaseAgeExclude:
-  - '@zanreal/medusa-admin-kit@0.1.0'
+  - '@zanreal/medusa-admin-kit@0.1.0 || 0.2.0'
