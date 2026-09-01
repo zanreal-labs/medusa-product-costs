@@ -83,7 +83,7 @@ describe("formatAmount", () => {
  * plain space silently fail on a diff nobody can see. Normalising here keeps
  * the expectations readable while still asserting the real output.
  */
-const plain = (value: string): string => value.replaceAll(/[\u00a0\u202f]/gu, " ");
+const plain = (value: string): string => value.replace(/[\u00a0\u202f]/g, " ");
 
 describe("formatMarginLabel", () => {
   it("renders KWOTA (PROCENT) and nothing else", () => {
