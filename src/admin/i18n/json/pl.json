@@ -18,13 +18,11 @@
       "columns": {
         "variant": "Wariant",
         "sku": "SKU",
-        "netCost": "Koszt netto",
+        "netCost": "Cena zakupu",
         "grossCost": "Brutto (z VAT)",
-        "margin": "Marża"
+        "srpMargin": "Marża SRP"
       },
       "noSku": "brak sku",
-      "atPrice": "przy cenie",
-      "setPriceToSeeMargin": "ustaw cenę w {{currency}}, aby zobaczyć marżę",
       "save": "Zapisz",
       "history": "Historia",
       "historyTitle": "Historia kosztu dla {{sku}}",
@@ -34,7 +32,10 @@
         "source": "Źródło",
         "changedBy": "Zmienił/a",
         "changedAt": "Data zmiany"
-      }
+      },
+      "noCost": "brak ceny zakupu",
+      "noSrp": "brak SRP",
+      "noVatRate": "brak stawki VAT"
     },
     "settings": {
       "vatRateInvalid": "Podaj stawkę VAT z zakresu od 0 do 100.",
@@ -75,11 +76,14 @@
       "importErrorLinePrefix": "Wiersz"
     },
     "catalogColumn": {
-      "header": "Koszt",
+      "header": "Cena zakupu",
       "error": "błąd",
-      "notCosted": "brak kosztu",
-      "noVatRateSet": "brak stawki VAT",
-      "inclVat": "z VAT"
+      "srpMarginHeader": "Marża SRP",
+      "loading": "...",
+      "noCost": "brak ceny zakupu",
+      "noSrp": "brak SRP",
+      "noVatRate": "brak stawki VAT",
+      "noSku": "brak SKU"
     }
   }
 }

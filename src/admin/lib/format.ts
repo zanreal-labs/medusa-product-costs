@@ -63,3 +63,75 @@ export function formatPercent(fraction?: number): string {
 export function formatAmount(value?: number): string {
   return value === undefined || !Number.isFinite(value) ? "-" : value.toFixed(2);
 }
+
+/**
+ * A margin as one compact label: `KWOTA (PROCENT)`, e.g. `"42,10 zł (27%)"`.
+ *
+ * This is the shape the owner asked for verbatim, and the reason it is one
+ * helper rather than two call sites gluing strings: the amount and the
+ * percentage are two readings of the same fact, so they have to round and
+ * localise together everywhere they appear (the Catalog column, the product
+ * card, the variant card).
+ *
+ * What it deliberately does NOT include is the anchor price. The card used to
+ * append "at 199.00", and that sub-line is exactly what was asked to go: with
+ * two margins side by side the anchor is implied by the column it sits under,
+ * and repeating it doubled the width of the busiest part of the table.
+ *
+ * `Intl` does the formatting so the money follows the admin's own locale - a
+ * Polish admin gets `42,10 zł`, an English one `PLN 42.10` - rather than this
+ * plugin inventing a symbol table. The percentage is rounded to a whole number
+ * on purpose: a margin is a decision aid here, and a trailing decimal is the
+ * kind of precision that reads as noise in a dense column.
+ *
+ * Falls back to `"12.34 PLN"` when the currency is not a code `Intl` accepts,
+ * which is what an unconfigured or hand-typed currency looks like. Returns
+ * `"-"` when either half is unusable, so a caller can never render half a
+ * label.
+ */
+export function formatMarginLabel(
+  amount: number | undefined,
+  fraction: number | undefined,
+  currency: string,
+  /** BCP 47 tag; defaults to the runtime's locale. */
+  locale?: string,
+): string {
+  if (
+    amount === undefined ||
+    !Number.isFinite(amount) ||
+    fraction === undefined ||
+    !Number.isFinite(fraction)
+  ) {
+    return "-";
+  }
+  return `${formatMoney(amount, currency, locale)} (${formatPercentCompact(fraction, locale)})`;
+}
+
+/** Money in the admin's locale, falling back to `"12.34 XYZ"` for a currency `Intl` rejects. */
+export function formatMoney(amount: number, currency: string, locale?: string): string {
+  const code = currency.trim().toUpperCase();
+  // `Intl` throws a RangeError on anything that is not a well-formed ISO 4217
+  // code, and an unconfigured plugin legitimately has an empty currency, so the
+  // throw is a normal path rather than an exceptional one.
+  if (/^[A-Z]{3}$/.test(code)) {
+    try {
+      return new Intl.NumberFormat(locale, { currency: code, style: "currency" }).format(amount);
+    } catch {
+      // Fall through to the plain rendering below.
+    }
+  }
+  const plain = amount.toFixed(2);
+  return code ? `${plain} ${code}` : plain;
+}
+
+/** A ratio as a whole-number percentage (`0.271` -> `"27%"`), in the admin's locale. */
+export function formatPercentCompact(fraction: number, locale?: string): string {
+  try {
+    return new Intl.NumberFormat(locale, {
+      maximumFractionDigits: 0,
+      style: "percent",
+    }).format(fraction);
+  } catch {
+    return `${Math.round(fraction * 100)}%`;
+  }
+}
