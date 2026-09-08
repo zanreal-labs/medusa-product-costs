@@ -1,6 +1,6 @@
 {
   "name": "@zanreal/medusa-product-costs",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Medusa v2 plugin for tracking product purchase cost (COGS) per SKU and computing margin, break-even price and net income against a selling price.",
   "keywords": [
     "break-even",

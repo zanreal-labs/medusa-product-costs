@@ -9,8 +9,9 @@ registry, not merge dates on `main` - see [Releasing](./README.md#releasing).
 
 ## [Unreleased]
 
-Everything below is on `main` and has not been published. Install it as a pinned git
-dependency if you need it before the next release.
+Nothing yet.
+
+## [0.2.0] - 2026-09-08
 
 ### Added
 
@@ -49,5 +50,6 @@ First public release. MIT, published from CI with npm provenance.
   per-product cost-coverage column, and the product page as the primary costing surface.
 - Admin UI in English and Polish.
 
-[Unreleased]: https://github.com/zanreal-labs/medusa-product-costs/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/zanreal-labs/medusa-product-costs/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/zanreal-labs/medusa-product-costs/releases/tag/v0.2.0
 [0.1.0]: https://github.com/zanreal-labs/medusa-product-costs/releases/tag/v0.1.0
