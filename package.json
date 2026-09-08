@@ -3,8 +3,15 @@
   "version": "0.1.0",
   "description": "Medusa v2 plugin for tracking product purchase cost (COGS) per SKU and computing margin, break-even price and net income against a selling price.",
   "keywords": [
+    "break-even",
+    "cogs",
+    "margin",
+    "medusa",
     "medusa-plugin",
-    "medusa-v2"
+    "medusa-v2",
+    "plugin",
+    "product-costs",
+    "profitability"
   ],
   "homepage": "https://zanreal.com/docs/oss/medusa-product-costs",
   "bugs": {
@@ -21,7 +28,8 @@
     "provenance": true
   },
   "files": [
-    ".medusa/server"
+    ".medusa/server",
+    "CHANGELOG.md"
   ],
   "dependencies": {
     "@zanreal/medusa-admin-kit": "^0.2.0"
@@ -52,6 +60,7 @@
     "prepublishOnly": "medusa plugin:build"
   },
   "devDependencies": {
+    "@medusajs/orchestration": "2.18.0",
     "@medusajs/admin-sdk": "2.18.0",
     "@medusajs/admin-shared": "2.18.0",
     "@medusajs/cli": "2.18.0",

@@ -1,0 +1,53 @@
+# Changelog
+
+All notable changes to `@zanreal/medusa-product-costs` are recorded here.
+
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
+project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). A version
+reaches npm only through a GitHub Release, so the dates below are publish dates on the
+registry, not merge dates on `main` - see [Releasing](./README.md#releasing).
+
+## [Unreleased]
+
+Everything below is on `main` and has not been published. Install it as a pinned git
+dependency if you need it before the next release.
+
+### Added
+
+- **Purchase cost and SRP margin on the catalog, the product page and the variant page.**
+  The cost stops being something you open a separate screen to see.
+
+### Changed
+
+- Depends on `@zanreal/medusa-admin-kit` `^0.2.0`, the release that carries the stock base
+  column.
+- `pnpm test` runs the same typechecks CI runs, so a green local run means the same thing
+  as a green pipeline.
+
+### Fixed
+
+- README states the package is on npm and how to install it from the registry. The
+  previous text still told readers it was unpublished, which was the first thing a visitor
+  to the npm page read.
+
+## [0.1.0] - 2026-08-26
+
+First public release. MIT, published from CI with npm provenance.
+
+### Added
+
+- **`productCosts` module** tracking purchase cost (COGS) per SKU, with atomic cost and
+  history writes, append-only history and numeric DTOs.
+- **Margin, break-even price and net income** computed against a selling price, with
+  double rounding eliminated from the arithmetic and the admin preview rounding the same
+  way the server does.
+- **CSV import** whose delimiter tie-break is hardened, so an ambiguous row is reported
+  rather than guessed.
+- **Variant links** that cascade-delete when stale, plus a resync action.
+- **Settings**: VAT rate and default currency persisted and editable.
+- **Catalog surface** through `@zanreal/medusa-admin-kit`: one row per variant, with a
+  per-product cost-coverage column, and the product page as the primary costing surface.
+- Admin UI in English and Polish.
+
+[Unreleased]: https://github.com/zanreal-labs/medusa-product-costs/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/zanreal-labs/medusa-product-costs/releases/tag/v0.1.0
