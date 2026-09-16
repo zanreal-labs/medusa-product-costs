@@ -29,6 +29,7 @@
   },
   "files": [
     ".medusa/server",
+    "dist",
     "CHANGELOG.md"
   ],
   "dependencies": {
@@ -45,10 +46,15 @@
       "import": "./.medusa/server/src/admin/index.mjs",
       "require": "./.medusa/server/src/admin/index.js",
       "default": "./.medusa/server/src/admin/index.js"
+    },
+    "./admin/components/entity-cost-card": {
+      "types": "./dist/entity-cost-card.d.ts",
+      "import": "./dist/entity-cost-card.mjs",
+      "require": "./dist/entity-cost-card.js"
     }
   },
   "scripts": {
-    "build": "medusa plugin:build",
+    "build": "medusa plugin:build && tsup",
     "dev": "medusa plugin:develop",
     "lint": "medusa lint",
     "typecheck": "tsc --noEmit -p tsconfig.json",
@@ -56,11 +62,10 @@
     "test": "pnpm run typecheck && pnpm run typecheck:admin && vitest run",
     "test:unit": "vitest run",
     "test:watch": "vitest",
-    "prepare": "medusa plugin:build",
-    "prepublishOnly": "medusa plugin:build"
+    "prepare": "medusa plugin:build && tsup",
+    "prepublishOnly": "medusa plugin:build && tsup"
   },
   "devDependencies": {
-    "@medusajs/orchestration": "2.18.0",
     "@medusajs/admin-sdk": "2.18.0",
     "@medusajs/admin-shared": "2.18.0",
     "@medusajs/cli": "2.18.0",
@@ -69,6 +74,7 @@
     "@medusajs/icons": "2.18.0",
     "@medusajs/js-sdk": "2.18.0",
     "@medusajs/medusa": "2.18.0",
+    "@medusajs/orchestration": "2.18.0",
     "@medusajs/test-utils": "2.18.0",
     "@medusajs/ui": "4.2.0",
     "@swc/core": "^1.7.28",
@@ -83,6 +89,7 @@
     "react-dom": "^18.2.0",
     "react-i18next": "^13.5.0",
     "ts-node": "^10.9.2",
+    "tsup": "^8.5.1",
     "typescript": "^5.6.2",
     "vite": "^5.2.11",
     "vitest": "^3.2.7",
