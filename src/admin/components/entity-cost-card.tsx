@@ -12,6 +12,8 @@ import {
 } from "@medusajs/ui";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { computeEconomics } from "../../modules/product-costs/lib/economics";
+import { grossFromNet } from "../../modules/product-costs/lib/money";
 
 const interpolate = (template: string, values: Record<string, string | number>): string =>
   Object.entries(values).reduce(
@@ -162,14 +164,12 @@ const EntityCostCard = ({ entityId, prices }: EntityCostCardProps) => {
   )?.amount;
 
   const netCost = cost?.unit_cost_net;
-  const grossCost =
-    netCost !== undefined && vatRate !== null ? netCost * (1 + vatRate) : undefined;
-  const netIncome =
-    srp !== undefined && grossCost !== undefined ? srp - grossCost : undefined;
-  const marginPct =
-    netIncome !== undefined && srp !== undefined && srp > 0
-      ? (netIncome / srp) * 100
-      : undefined;
+  const economics =
+    vatRate !== null
+      ? computeEconomics({ netCost, sellingPrice: srp, vatRate })
+      : ({} as ReturnType<typeof computeEconomics>);
+  const { grossCost, netIncome } = economics;
+  const marginPct = economics.marginPct !== undefined ? economics.marginPct * 100 : undefined;
 
   const handleOpenHistory = () => {
     setHistoryOpen(true);
@@ -215,7 +215,7 @@ const EntityCostCard = ({ entityId, prices }: EntityCostCardProps) => {
   const previewGross = (() => {
     if (!editing || vatRate === null) return undefined;
     const v = parseInputCost(inputValue);
-    return v !== undefined ? v * (1 + vatRate) : undefined;
+    return v !== undefined ? grossFromNet(v, vatRate) : undefined;
   })();
 
   const vatLabel =
