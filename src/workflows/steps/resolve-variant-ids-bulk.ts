@@ -43,8 +43,10 @@ export async function resolveVariantIdsBulk(
     return { bySku: {}, duplicates: {} };
   }
 
-  const costsService: ProductCostsModuleService = container.resolve(PRODUCT_COSTS_MODULE);
-  if (costsService.moduleOptions.skipVariantLinking) {
+  const costsService = container.resolve<ProductCostsModuleService>(PRODUCT_COSTS_MODULE, {
+    allowUnregistered: true,
+  });
+  if (costsService?.moduleOptions?.skipVariantLinking) {
     return { bySku: {}, duplicates: {} };
   }
 

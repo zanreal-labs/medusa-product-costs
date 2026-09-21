@@ -41,8 +41,10 @@ export async function resolveVariantIdBySku(
   input: ResolveVariantIdBySkuInput,
   { container }: Pick<StepExecutionContext, "container">,
 ): Promise<ResolveVariantIdBySkuOutput> {
-  const costsService: ProductCostsModuleService = container.resolve(PRODUCT_COSTS_MODULE);
-  if (costsService.moduleOptions.skipVariantLinking) {
+  const costsService = container.resolve<ProductCostsModuleService>(PRODUCT_COSTS_MODULE, {
+    allowUnregistered: true,
+  });
+  if (costsService?.moduleOptions?.skipVariantLinking) {
     return { duplicateMatches: 0, variantId: null };
   }
 
