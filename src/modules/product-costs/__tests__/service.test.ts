@@ -92,17 +92,17 @@ describe("ProductCostsModuleService.moduleOptions", () => {
     // this plugin trades in Poland, and quietly moved gross cost, margin and
     // break-even for anyone who does not.
     const service = createService(null);
-    expect(service.moduleOptions).toEqual({ defaultCurrency: null, vatRate: null });
+    expect(service.moduleOptions).toEqual({ defaultCurrency: null, vatRate: null, skipVariantLinking: false });
   });
 
   it("honors options passed by the consuming app", () => {
     const service = createService({ defaultCurrency: "EUR", vatRate: 0.19 });
-    expect(service.moduleOptions).toEqual({ defaultCurrency: "EUR", vatRate: 0.19 });
+    expect(service.moduleOptions).toEqual({ defaultCurrency: "EUR", vatRate: 0.19, skipVariantLinking: false });
   });
 
   it("keeps an explicit zero VAT rate, which is a real answer and not an absent one", () => {
     const service = createService({ defaultCurrency: "GBP", vatRate: 0 });
-    expect(service.moduleOptions).toEqual({ defaultCurrency: "GBP", vatRate: 0 });
+    expect(service.moduleOptions).toEqual({ defaultCurrency: "GBP", vatRate: 0, skipVariantLinking: false });
   });
 
   it("normalizes a configured currency to upper case", () => {
@@ -556,7 +556,7 @@ describe("ProductCostsModuleService settings singleton", () => {
 
     const resolved = await service.getResolvedOptions();
 
-    expect(resolved).toEqual({ defaultCurrency: "EUR", vatRate: 0.19 });
+    expect(resolved).toEqual({ defaultCurrency: "EUR", vatRate: 0.19, skipVariantLinking: false });
   });
 
   it("getResolvedOptions prefers a persisted override over moduleOptions", async () => {
@@ -567,7 +567,7 @@ describe("ProductCostsModuleService settings singleton", () => {
 
     const resolved = await service.getResolvedOptions();
 
-    expect(resolved).toEqual({ defaultCurrency: "USD", vatRate: 0.08 });
+    expect(resolved).toEqual({ defaultCurrency: "USD", vatRate: 0.08, skipVariantLinking: false });
   });
 
   it("getResolvedOptions falls back per-field, not all-or-nothing", async () => {
@@ -579,7 +579,7 @@ describe("ProductCostsModuleService settings singleton", () => {
 
     const resolved = await service.getResolvedOptions();
 
-    expect(resolved).toEqual({ defaultCurrency: "PLN", vatRate: 0.05 });
+    expect(resolved).toEqual({ defaultCurrency: "PLN", vatRate: 0.05, skipVariantLinking: false });
   });
 
   it("updateSettings writes only the given keys and returns the refreshed row", async () => {
