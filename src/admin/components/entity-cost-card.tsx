@@ -10,7 +10,7 @@ import {
   Text,
   toast,
 } from "@medusajs/ui";
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 const interpolate = (template: string, values: Record<string, string | number>): string =>
