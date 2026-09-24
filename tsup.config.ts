@@ -11,6 +11,9 @@ export default defineConfig({
   external: ["react", "react-dom", "@medusajs/ui", "react-i18next", "i18next"],
   sourcemap: false,
   treeshake: true,
+  banner: {
+    js: `import React from 'react';`,
+  },
   esbuildOptions(options) {
     options.jsx = "automatic";
   },
