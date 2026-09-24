@@ -1,4 +1,6 @@
 import { createWorkflow, WorkflowResponse } from "@medusajs/framework/workflows-sdk";
+import type { ReturnWorkflow } from "@medusajs/framework/workflows-sdk";
+import type { VariantLinkChange } from "../modules/product-costs/service";
 import { createRemoteLinkStep, dismissRemoteLinkStep } from "@medusajs/medusa/core-flows";
 import { applyVariantLinksStep } from "./steps/apply-variant-links-step";
 import { buildBulkLinkChangeStep } from "./steps/build-bulk-link-change-step";
@@ -6,6 +8,11 @@ import { resolveVariantIdsBulkStep } from "./steps/resolve-variant-ids-bulk";
 
 export interface SyncCostPriceVariantLinksWorkflowInput {
   skus: string[];
+}
+
+export interface SyncCostPriceVariantLinksWorkflowOutput {
+  changes: VariantLinkChange[];
+  duplicateSkus: Record<string, number>;
 }
 
 /**
@@ -16,7 +23,16 @@ export interface SyncCostPriceVariantLinksWorkflowInput {
  * `import-cost-prices-csv.ts`) or at any time to repair links after
  * variants were deleted and recreated.
  */
-export const syncCostPriceVariantLinksWorkflow = createWorkflow(
+// Annotated rather than inferred. The inferred type reaches into
+// @medusajs/orchestration, and when this plugin is built inside a pnpm
+// workspace (the Medusa app vendors it as a submodule) the declaration emit
+// cannot name that module portably and fails with TS2742. Stating the public
+// shape here also documents it for the two callers.
+export const syncCostPriceVariantLinksWorkflow: ReturnWorkflow<
+  SyncCostPriceVariantLinksWorkflowInput,
+  SyncCostPriceVariantLinksWorkflowOutput,
+  []
+> = createWorkflow(
   "sync-cost-price-variant-links",
   (input: SyncCostPriceVariantLinksWorkflowInput) => {
     const resolved = resolveVariantIdsBulkStep({ skus: input.skus });
