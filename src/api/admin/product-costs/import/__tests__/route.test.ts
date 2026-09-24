@@ -21,6 +21,10 @@ import { POST } from "../route";
 
 function createService(overrides: Record<string, unknown> = {}) {
   return {
+    // The route resolves an effective currency before handing the CSV over,
+    // and that walks the settings singleton and the plugin options, so the
+    // fake service has to answer both.
+    getSettings: vi.fn().mockResolvedValue({ default_currency: null, id: "pcset_singleton" }),
     importCsv: vi.fn().mockResolvedValue({
       created: 0,
       errors: [],
@@ -28,8 +32,30 @@ function createService(overrides: Record<string, unknown> = {}) {
       skus: [],
       updated: 0,
     }),
+    moduleOptions: { defaultCurrency: "PLN", vatRate: 0.23 },
     ...overrides,
   };
+}
+
+/**
+ * A request scope that answers per registration key: the product-costs
+ * service for everything except Medusa's Query, which only exists to read the
+ * store's default currency. `storeCurrency: undefined` leaves Query
+ * unregistered, which is the same situation as a store with no default
+ * currency named.
+ */
+function createScope(service: unknown, storeCurrency?: string) {
+  const query =
+    storeCurrency === undefined
+      ? undefined
+      : {
+          graph: vi.fn().mockResolvedValue({
+            data: [
+              { supported_currencies: [{ currency_code: storeCurrency, is_default: true }] },
+            ],
+          }),
+        };
+  return { resolve: (key: string) => (key === "query" ? query : service) };
 }
 
 function createReq(overrides: Record<string, unknown> = {}) {
@@ -50,7 +76,7 @@ beforeEach(() => {
 describe("POST /admin/product-costs/import", () => {
   it("rejects a missing csv body with 400, without touching the service", async () => {
     const service = createService();
-    const req = createReq({ scope: { resolve: () => service } }) as never;
+    const req = createReq({ scope: createScope(service) }) as never;
     const res = createMockResponse();
 
     await POST(req, res as never);
@@ -64,7 +90,7 @@ describe("POST /admin/product-costs/import", () => {
     const service = createService();
     const req = createReq({
       body: { csv: "   \n  " },
-      scope: { resolve: () => service },
+      scope: createScope(service),
     }) as never;
     const res = createMockResponse();
 
@@ -77,7 +103,7 @@ describe("POST /admin/product-costs/import", () => {
     const service = createService();
     const req = createReq({
       body: { csv: 12_345 },
-      scope: { resolve: () => service },
+      scope: createScope(service),
     }) as never;
     const res = createMockResponse();
 
@@ -91,7 +117,7 @@ describe("POST /admin/product-costs/import", () => {
     const req = createReq({
       auth_context: { actor_id: "user_9" },
       body: { csv: "SKU-1,10.50" },
-      scope: { resolve: () => service },
+      scope: createScope(service),
     }) as never;
     const res = createMockResponse();
 
@@ -99,8 +125,48 @@ describe("POST /admin/product-costs/import", () => {
 
     expect(service.importCsv).toHaveBeenCalledWith("SKU-1,10.50", {
       changedBy: "user_9",
+      currency: "PLN",
       source: "csv",
     });
+  });
+
+  it("imports in the store's default currency when nothing else names one", async () => {
+    const service = createService({
+      moduleOptions: { defaultCurrency: null, vatRate: 0.23 },
+    });
+    const req = createReq({
+      body: { csv: "SKU-1,10.50" },
+      scope: createScope(service, "gbp"),
+    }) as never;
+    const res = createMockResponse();
+
+    await POST(req, res as never);
+
+    // Without this the import would run to completion and then refuse every
+    // single row for want of a currency: a `sku,cost` file carries none, and
+    // the module service cannot see the store module to ask.
+    expect(service.importCsv).toHaveBeenCalledWith(
+      "SKU-1,10.50",
+      expect.objectContaining({ currency: "GBP" }),
+    );
+  });
+
+  it("leaves the currency unset when it resolves nowhere, so the service refuses with its own message", async () => {
+    const service = createService({
+      moduleOptions: { defaultCurrency: null, vatRate: 0.23 },
+    });
+    const req = createReq({
+      body: { csv: "SKU-1,10.50" },
+      scope: createScope(service),
+    }) as never;
+    const res = createMockResponse();
+
+    await POST(req, res as never);
+
+    expect(service.importCsv).toHaveBeenCalledWith(
+      "SKU-1,10.50",
+      expect.objectContaining({ currency: undefined }),
+    );
   });
 
   it("does not run the variant-link sync workflow when no SKU was touched", async () => {
@@ -115,7 +181,7 @@ describe("POST /admin/product-costs/import", () => {
     });
     const req = createReq({
       body: { csv: "garbage" },
-      scope: { resolve: () => service },
+      scope: createScope(service),
     }) as never;
     const res = createMockResponse();
 
@@ -144,7 +210,7 @@ describe("POST /admin/product-costs/import", () => {
     runMock.mockResolvedValue({ result: { changes: [], duplicateSkus: { "SKU-1": 1 } } });
     const req = createReq({
       body: { csv: "SKU-1,10\nSKU-2,20" },
-      scope: { resolve: () => service },
+      scope: createScope(service),
     }) as never;
     const res = createMockResponse();
 
@@ -168,7 +234,7 @@ describe("POST /admin/product-costs/import", () => {
     });
     const req = createReq({
       body: { csv: "SKU-1,10\nbad,row" },
-      scope: { resolve: () => service },
+      scope: createScope(service),
     }) as never;
     const res = createMockResponse();
 

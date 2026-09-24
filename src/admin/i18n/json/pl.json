@@ -64,6 +64,7 @@
       "vatRateLabel": "Stawka VAT (%)",
       "vatRatePlaceholder": "np. 20",
       "currencyLabel": "Domyślna waluta",
+      "currencyFromStore": "Wzięta z domyślnej waluty sklepu ({{currency}}). Zapisz, aby ustawić ją tutaj, albo wybierz walutę, w której dostajesz faktury zakupowe.",
       "selectCurrencyPlaceholder": "Wybierz walutę",
       "save": "Zapisz",
       "csvHeading": "Import zbiorczy (CSV)",

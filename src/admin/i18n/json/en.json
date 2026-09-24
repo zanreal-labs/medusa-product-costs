@@ -64,6 +64,7 @@
       "vatRateLabel": "VAT rate (%)",
       "vatRatePlaceholder": "e.g. 20",
       "currencyLabel": "Default currency",
+      "currencyFromStore": "Taken from your store's default currency ({{currency}}). Save to record it here, or pick the currency your purchase invoices are in.",
       "selectCurrencyPlaceholder": "Select currency",
       "save": "Save",
       "csvHeading": "Bulk import (CSV)",

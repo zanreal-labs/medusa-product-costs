@@ -141,6 +141,14 @@ export interface ImportCsvResult {
 export interface ImportCsvOptions {
   source?: CostSource;
   changedBy?: string | null;
+  /**
+   * Currency to record every row in. Omitted, each row falls back to the
+   * currency this module resolves on its own (Settings override, then plugin
+   * option) - a `sku,cost` CSV carries no currency of its own. The API route
+   * passes the effective currency, which can also come from the store's
+   * default; the module cannot see that far by itself.
+   */
+  currency?: string;
 }
 
 export interface ComputeEconomicsInput {

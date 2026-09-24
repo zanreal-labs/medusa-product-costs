@@ -147,6 +147,17 @@ So instead of guessing:
   no VAT rate resolves from anywhere.
 - `upsertCost` refuses, the same way, when a cost carries no explicit currency and no default one is
   configured. Passing `currency` explicitly always works regardless.
+
+There is one inference, and it is a labelled one. Before giving up on the currency, the admin
+endpoints fall back to the currency marked `is_default` in **Medusa's own Store settings**. That is
+not a guess out of thin air - it is a real value somebody configured in this very backend - but it
+answers a different question (what the shop sells in) than the one this plugin is asking (what the
+purchase invoice was denominated in), and for any store that buys abroad and sells at home the two
+differ. So it sits last in the order, and it never arrives unannounced: `GET
+/admin/product-costs/config` returns `defaultCurrencySource: "store"` and the Settings page says
+"Taken from your store's default currency" under the field rather than presenting it as a setting
+somebody chose. Full order, strongest first: an explicit `currency` on the request, the Settings
+override, the `defaultCurrency` plugin option, the store's default currency.
 - The Settings page renders blank fields plus a warning, and the product widget shows "VAT not set"
   with the gross column blank, rather than a number nobody chose.
 
@@ -387,12 +398,18 @@ the admin UI can compute a gross cost preview that matches how this store actual
 `vatRateOverridden`/`defaultCurrencyOverridden` report whether each field is currently an override
 or the plugin default, which is what the Settings page uses to show/hide "Reset to plugin default".
 
+`defaultCurrencySource` says where the currency came from: `"settings"`, `"plugin"`, `"store"` (the
+currency marked `is_default` in Medusa's Store settings) or `null` when it is configured nowhere.
+Only `"store"` changes what the Settings page renders - see "No default VAT rate and no default
+currency" above for why that one is labelled rather than shown as a chosen setting.
+
 ```json
 {
   "vatRate": 0.2,
   "defaultCurrency": "EUR",
   "vatRateOverridden": false,
-  "defaultCurrencyOverridden": false
+  "defaultCurrencyOverridden": false,
+  "defaultCurrencySource": "plugin"
 }
 ```
 

@@ -432,6 +432,7 @@ class ProductCostsModuleService extends MedusaService({
       try {
         const result = await this.upsertCost(row.sku, row.unitCostNet, {
           changedBy: opts.changedBy ?? null,
+          currency: opts.currency,
           source,
         });
         if (result.created) {

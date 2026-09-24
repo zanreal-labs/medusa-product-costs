@@ -1,5 +1,6 @@
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http";
 import { MedusaError } from "@medusajs/framework/utils";
+import { resolveEffectiveCurrency } from "../../../../lib/store-currency";
 import { PRODUCT_COSTS_MODULE } from "../../../../modules/product-costs";
 import type ProductCostsModuleService from "../../../../modules/product-costs/service";
 import type { ProductCostsSettingsPatch } from "../../../../modules/product-costs/types";
@@ -26,14 +27,21 @@ const WRITABLE_KEYS = new Set(["vat_rate", "default_currency"]);
  * no default VAT rate and no default currency, so `null` must reach the UI
  * intact: it is what tells the Settings page to render a blank field and a
  * warning instead of a number nobody chose.
+ *
+ * `defaultCurrencySource` says where the currency came from - a value saved
+ * here, the plugin option, or Medusa's own Store settings. The last one is a
+ * fallback nobody typed into this plugin, so the UI names it rather than
+ * presenting it as a chosen setting; see `resolveEffectiveCurrency`.
  */
 export async function GET(req: MedusaRequest, res: MedusaResponse): Promise<void> {
   const service: ProductCostsModuleService = req.scope.resolve(PRODUCT_COSTS_MODULE);
   const resolved = await service.getResolvedOptions();
   const settings = await service.getSettings();
+  const currency = await resolveEffectiveCurrency(req.scope);
   res.json({
-    defaultCurrency: resolved.defaultCurrency,
+    defaultCurrency: currency.currency,
     defaultCurrencyOverridden: settings.default_currency !== null,
+    defaultCurrencySource: currency.source,
     vatRate: resolved.vatRate,
     vatRateOverridden: settings.vat_rate !== null,
   });
@@ -122,9 +130,14 @@ export async function POST(req: MedusaRequest, res: MedusaResponse): Promise<voi
   const { result: settings } = await updateProductCostsSettingsWorkflow(req.scope).run({
     input: patch,
   });
+  // Re-resolved rather than read off the patch: clearing the override here
+  // hands the answer back to the plugin option, and then to the store's own
+  // default currency, and the response has to say which of those took over.
+  const currency = await resolveEffectiveCurrency(req.scope);
   res.json({
-    defaultCurrency: settings.default_currency ?? service.moduleOptions.defaultCurrency,
+    defaultCurrency: currency.currency,
     defaultCurrencyOverridden: settings.default_currency !== null,
+    defaultCurrencySource: currency.source,
     vatRate: settings.vat_rate ?? service.moduleOptions.vatRate,
     vatRateOverridden: settings.vat_rate !== null,
   });

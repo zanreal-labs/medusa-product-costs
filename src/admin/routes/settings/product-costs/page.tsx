@@ -35,6 +35,15 @@ interface ConfigResponse {
   vatRateOverridden: boolean;
   /** Whether `defaultCurrency` above came from a value saved here rather than from the plugin's own options. */
   defaultCurrencyOverridden: boolean;
+  /**
+   * Where `defaultCurrency` came from: this page (`settings`), the plugin
+   * option (`plugin`), Medusa's own Store settings (`store`), or nowhere
+   * (`null`). Only `store` changes what this page renders - it is the one
+   * value nobody chose for this plugin, so it is labelled rather than shown
+   * as a setting. Optional so an admin bundle newer than the backend it talks
+   * to degrades to the previous behaviour instead of rendering `undefined`.
+   */
+  defaultCurrencySource?: "settings" | "plugin" | "store" | null;
 }
 
 /**
@@ -400,6 +409,22 @@ const ProductCostsSettingsPage = () => {
                   ))}
                 </Select.Content>
               </Select>
+              {config.defaultCurrencySource === "store" ? (
+                // Said out loud on purpose. This currency came from Medusa's
+                // Store settings, not from anything anyone typed into this
+                // plugin, and the store's selling currency is not necessarily
+                // the currency purchase invoices arrive in. Saving turns the
+                // inference into a real setting.
+                <Text className="text-ui-fg-subtle" size="small">
+                  {interpolate(
+                    t(
+                      "productCosts.settings.currencyFromStore",
+                      "Taken from your store's default currency ({{currency}}). Save to record it here, or pick the currency your purchase invoices are in.",
+                    ),
+                    { currency: config.defaultCurrency ?? "" },
+                  )}
+                </Text>
+              ) : null}
             </div>
           </div>
         ) : (

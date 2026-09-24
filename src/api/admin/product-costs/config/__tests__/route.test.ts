@@ -23,8 +23,9 @@ import { GET, POST } from "../route";
 
 function createService(
   overrides: {
-    resolved?: { defaultCurrency: string; vatRate: number };
+    resolved?: { defaultCurrency: string | null; vatRate: number | null };
     settings?: { default_currency: string | null; vat_rate: number | null };
+    moduleOptions?: { defaultCurrency: string | null; vatRate: number | null };
   } = {},
 ) {
   const resolved = overrides.resolved ?? { defaultCurrency: "PLN", vatRate: 0.23 };
@@ -32,7 +33,39 @@ function createService(
   return {
     getResolvedOptions: vi.fn().mockResolvedValue(resolved),
     getSettings: vi.fn().mockResolvedValue({ id: "pcset_singleton", ...settings }),
-    moduleOptions: { defaultCurrency: "PLN", vatRate: 0.23 },
+    moduleOptions: overrides.moduleOptions ?? { defaultCurrency: "PLN", vatRate: 0.23 },
+  };
+}
+
+/**
+ * A request scope that answers per registration key. The route resolves two
+ * different things now - the product-costs service and Medusa's Query, the
+ * latter only to read the store's default currency - and a scope that hands
+ * the same object to both cannot tell those lookups apart.
+ *
+ * `storeCurrency: undefined` stands for a container with no Query registered
+ * (this plugin's own route tests, and any caller outside a Medusa request):
+ * the store fallback then resolves to nothing, exactly as it does when the
+ * store has named no default currency.
+ */
+function createScope(service: unknown, storeCurrency?: string) {
+  const query =
+    storeCurrency === undefined
+      ? undefined
+      : {
+          graph: vi.fn().mockResolvedValue({
+            data: [
+              {
+                supported_currencies: [
+                  { currency_code: "usd", is_default: false },
+                  { currency_code: storeCurrency.toLowerCase(), is_default: true },
+                ],
+              },
+            ],
+          }),
+        };
+  return {
+    resolve: (key: string) => (key === "query" ? query : service),
   };
 }
 
@@ -45,7 +78,7 @@ beforeEach(() => {
 describe("GET /admin/product-costs/config", () => {
   it("returns the resolved (persisted-or-default) configuration when nothing is overridden", async () => {
     const service = createService();
-    const req = { scope: { resolve: () => service } } as unknown as MedusaRequest;
+    const req = { scope: createScope(service) } as unknown as MedusaRequest;
     const res = createMockResponse();
 
     await GET(req, res as never);
@@ -53,6 +86,7 @@ describe("GET /admin/product-costs/config", () => {
     expect(res.json).toHaveBeenCalledWith({
       defaultCurrency: "PLN",
       defaultCurrencyOverridden: false,
+      defaultCurrencySource: "plugin",
       vatRate: 0.23,
       vatRateOverridden: false,
     });
@@ -63,7 +97,7 @@ describe("GET /admin/product-costs/config", () => {
       resolved: { defaultCurrency: "EUR", vatRate: 0.19 },
       settings: { default_currency: "EUR", vat_rate: 0.19 },
     });
-    const req = { scope: { resolve: () => service } } as unknown as MedusaRequest;
+    const req = { scope: createScope(service) } as unknown as MedusaRequest;
     const res = createMockResponse();
 
     await GET(req, res as never);
@@ -71,8 +105,66 @@ describe("GET /admin/product-costs/config", () => {
     expect(res.json).toHaveBeenCalledWith({
       defaultCurrency: "EUR",
       defaultCurrencyOverridden: true,
+      defaultCurrencySource: "settings",
       vatRate: 0.19,
       vatRateOverridden: true,
+    });
+  });
+
+  it("falls back to the store's default currency when neither the settings nor the plugin name one", async () => {
+    const service = createService({
+      moduleOptions: { defaultCurrency: null, vatRate: 0.23 },
+      resolved: { defaultCurrency: null, vatRate: 0.23 },
+    });
+    const req = { scope: createScope(service, "GBP") } as unknown as MedusaRequest;
+    const res = createMockResponse();
+
+    await GET(req, res as never);
+
+    expect(res.json).toHaveBeenCalledWith({
+      defaultCurrency: "GBP",
+      defaultCurrencyOverridden: false,
+      // Named, not silently presented as a chosen setting: the store's selling
+      // currency is not necessarily the currency purchase invoices arrive in.
+      defaultCurrencySource: "store",
+      vatRate: 0.23,
+      vatRateOverridden: false,
+    });
+  });
+
+  it("does not consult the store when the plugin already names a currency", async () => {
+    const service = createService();
+    const scope = createScope(service, "GBP");
+    const query = scope.resolve("query") as { graph: ReturnType<typeof vi.fn> };
+    const req = { scope } as unknown as MedusaRequest;
+    const res = createMockResponse();
+
+    await GET(req, res as never);
+
+    expect(query.graph).not.toHaveBeenCalled();
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ defaultCurrency: "PLN", defaultCurrencySource: "plugin" }),
+    );
+  });
+
+  it("reports the currency as configured nowhere when the store has no default either", async () => {
+    const service = createService({
+      moduleOptions: { defaultCurrency: null, vatRate: null },
+      resolved: { defaultCurrency: null, vatRate: null },
+    });
+    const req = { scope: createScope(service) } as unknown as MedusaRequest;
+    const res = createMockResponse();
+
+    await GET(req, res as never);
+
+    // `null` has to survive the trip: it is what tells the settings page to
+    // render a blank field and a warning instead of a code nobody chose.
+    expect(res.json).toHaveBeenCalledWith({
+      defaultCurrency: null,
+      defaultCurrencyOverridden: false,
+      defaultCurrencySource: null,
+      vatRate: null,
+      vatRateOverridden: false,
     });
   });
 
@@ -96,7 +188,7 @@ describe("POST /admin/product-costs/config", () => {
     const service = createService();
     const req = {
       body: { vat_rate: 0.19 },
-      scope: { resolve: () => service },
+      scope: createScope(service),
     } as unknown as MedusaRequest;
     const res = createMockResponse();
 
@@ -106,6 +198,7 @@ describe("POST /admin/product-costs/config", () => {
     expect(res.json).toHaveBeenCalledWith({
       defaultCurrency: "PLN",
       defaultCurrencyOverridden: false,
+      defaultCurrencySource: "plugin",
       vatRate: 0.19,
       vatRateOverridden: true,
     });
@@ -118,7 +211,7 @@ describe("POST /admin/product-costs/config", () => {
     const service = createService();
     const req = {
       body: { default_currency: "eur" },
-      scope: { resolve: () => service },
+      scope: createScope(service),
     } as unknown as MedusaRequest;
     const res = createMockResponse();
 
@@ -131,7 +224,7 @@ describe("POST /admin/product-costs/config", () => {
     const service = createService();
     const req = {
       body: { default_currency: "EURO" },
-      scope: { resolve: () => service },
+      scope: createScope(service),
     } as unknown as MedusaRequest;
     const res = createMockResponse();
 
@@ -145,7 +238,7 @@ describe("POST /admin/product-costs/config", () => {
     const service = createService();
     const req = {
       body: { vat_rate: 1.5 },
-      scope: { resolve: () => service },
+      scope: createScope(service),
     } as unknown as MedusaRequest;
     const res = createMockResponse();
 
@@ -159,7 +252,7 @@ describe("POST /admin/product-costs/config", () => {
     const service = createService();
     const req = {
       body: { vat_rate: -0.1 },
-      scope: { resolve: () => service },
+      scope: createScope(service),
     } as unknown as MedusaRequest;
     const res = createMockResponse();
 
@@ -176,7 +269,7 @@ describe("POST /admin/product-costs/config", () => {
     const service = createService();
     const req = {
       body: { vat_rate: null },
-      scope: { resolve: () => service },
+      scope: createScope(service),
     } as unknown as MedusaRequest;
     const res = createMockResponse();
 
@@ -189,7 +282,7 @@ describe("POST /admin/product-costs/config", () => {
     const service = createService();
     const req = {
       body: { vatRate: 0.2 },
-      scope: { resolve: () => service },
+      scope: createScope(service),
     } as unknown as MedusaRequest;
     const res = createMockResponse();
 
@@ -201,7 +294,7 @@ describe("POST /admin/product-costs/config", () => {
     const service = createService();
     const req = {
       body: {},
-      scope: { resolve: () => service },
+      scope: createScope(service),
     } as unknown as MedusaRequest;
     const res = createMockResponse();
 

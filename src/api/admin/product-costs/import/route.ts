@@ -1,4 +1,5 @@
 import type { AuthenticatedMedusaRequest, MedusaResponse } from "@medusajs/framework/http";
+import { resolveEffectiveCurrency } from "../../../../lib/store-currency";
 import { PRODUCT_COSTS_MODULE } from "../../../../modules/product-costs";
 import type ProductCostsModuleService from "../../../../modules/product-costs/service";
 import { syncCostPriceVariantLinksWorkflow } from "../../../../workflows/sync-cost-price-variant-links";
@@ -29,8 +30,15 @@ export async function POST(
   }
 
   const service: ProductCostsModuleService = req.scope.resolve(PRODUCT_COSTS_MODULE);
+  // A `sku,cost` CSV names no currency, so the import has to resolve one the
+  // same way the single-row upsert does - including the store's own default,
+  // which the module service cannot reach. Left to the service alone, a store
+  // relying on that fallback would import every row only to have each one
+  // refused for want of a currency.
+  const { currency } = await resolveEffectiveCurrency(req.scope);
   const result = await service.importCsv(csv, {
     changedBy: req.auth_context?.actor_id ?? null,
+    currency: currency ?? undefined,
     source: "csv",
   });
 

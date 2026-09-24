@@ -1,6 +1,7 @@
 import { createWorkflow, WorkflowResponse } from "@medusajs/framework/workflows-sdk";
 import { createRemoteLinkStep, dismissRemoteLinkStep } from "@medusajs/medusa/core-flows";
 import { buildLinkChangeStep } from "./steps/build-link-change-step";
+import { resolveCostCurrencyStep } from "./steps/resolve-cost-currency";
 import { resolveVariantIdBySkuStep } from "./steps/resolve-variant-id";
 import { upsertCostPriceStep } from "./steps/upsert-cost-price-step";
 import type { CostSource } from "../modules/product-costs/types";
@@ -27,9 +28,15 @@ export const upsertCostPriceWorkflow = createWorkflow(
   (input: UpsertCostPriceWorkflowInput) => {
     const resolvedVariant = resolveVariantIdBySkuStep({ sku: input.sku });
 
+    // Resolved here rather than left to the module service, because the last
+    // fallback - the store's own default currency - lives in another module
+    // and the service is deliberately blind to those. An explicit
+    // `input.currency` still wins; see `resolveCostCurrency`.
+    const resolvedCurrency = resolveCostCurrencyStep({ requested: input.currency });
+
     const upsertResult = upsertCostPriceStep({
       changedBy: input.changedBy,
-      currency: input.currency,
+      currency: resolvedCurrency.currency,
       note: input.note,
       sku: input.sku,
       source: input.source,
