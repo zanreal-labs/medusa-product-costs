@@ -9,7 +9,31 @@ registry, not merge dates on `main` - see [Releasing](./README.md#releasing).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **A cost per currency.** `CostPrice` is keyed by `(sku, currency)` instead of by `sku` alone, so a
+  store buying the same article from suppliers who invoice in different currencies can record both
+  figures, and a store selling in several currencies can see a margin in each. The rows are
+  independent facts: this plugin still does no exchange-rate arithmetic. Pick the extra currencies
+  under Settings > Product costs; `GET /admin/product-costs` gains an optional `?currency=`, and
+  `GET /admin/product-costs/config` reports `enabledCurrencies`.
+
+### Changed
+
+- `getCostsBySkus`/`getCostBySku` take an optional currency and default to the store's, so a caller
+  that wants one number still gets a deterministic one rather than whichever row the database
+  returned first. `getAllCostsBySku` is the new multi-currency read. `computeEconomics` takes an
+  optional `currency`.
+- The Catalog cost column shows the default currency's cost and appends `+N` when the SKU is costed
+  in others, rather than silently rendering one of several.
+- Variant-link resync now re-points every currency's row for a SKU, not just the default one's.
+
+### Migration
+
+- `Migration20260924061401` widens the unique index from `sku` to `(sku, currency)` and adds
+  `product_costs_settings.enabled_currencies`. Additive: existing rows already carry a currency, so
+  nothing needs backfilling. `down()` will fail once a SKU has costs in two currencies, deliberately -
+  choosing which of them to destroy is not a migration's call.
 
 ## [0.2.0] - 2026-09-08
 

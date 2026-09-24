@@ -4,6 +4,7 @@ import { resolveEffectiveCurrency } from "../../../../lib/store-currency";
 import { PRODUCT_COSTS_MODULE } from "../../../../modules/product-costs";
 import type ProductCostsModuleService from "../../../../modules/product-costs/service";
 import type { ProductCostsSettingsPatch } from "../../../../modules/product-costs/types";
+import { normalizeEnabledCurrencies } from "../../../../modules/product-costs/types";
 import { updateProductCostsSettingsWorkflow } from "../../../../workflows/update-product-costs-settings";
 
 /** ISO-4217 currency codes are always 3 letters; normalize case before checking. */
@@ -12,13 +13,19 @@ const CURRENCY_CODE_RE = /^[A-Z]{3}$/;
 const MAX_VAT_RATE = 1;
 
 /** The columns an admin write may set, mapped for a fast membership test against typos. */
-const WRITABLE_KEYS = new Set(["vat_rate", "default_currency"]);
+const WRITABLE_KEYS = new Set(["vat_rate", "default_currency", "enabled_currencies"]);
+
+/**
+ * A guard against a pasted spreadsheet column, not a business limit. The list
+ * drives how many cost rows a card renders per SKU.
+ */
+const MAX_ENABLED_CURRENCIES = 25;
 
 /**
  * GET /admin/product-costs/config
  *
- * The RESOLVED configuration (`vatRate`, `defaultCurrency`) the rest of the
- * plugin actually computes with: a value saved from this same Settings page
+ * The RESOLVED configuration (`vatRate`, `defaultCurrency`,
+ * `enabledCurrencies`) the rest of the plugin actually computes with: a value saved from this same Settings page
  * when one exists, falling back to the plugin's own options otherwise. The
  * admin UI (this page and the product detail widget) uses this to compute a
  * gross-cost preview that always matches what the server itself would compute.
@@ -42,6 +49,8 @@ export async function GET(req: MedusaRequest, res: MedusaResponse): Promise<void
     defaultCurrency: currency.currency,
     defaultCurrencyOverridden: settings.default_currency !== null,
     defaultCurrencySource: currency.source,
+    enabledCurrencies: normalizeEnabledCurrencies(currency.currency, resolved.enabledCurrencies),
+    enabledCurrenciesOverridden: settings.enabled_currencies !== null,
     vatRate: resolved.vatRate,
     vatRateOverridden: settings.vat_rate !== null,
   });
@@ -50,12 +59,14 @@ export async function GET(req: MedusaRequest, res: MedusaResponse): Promise<void
 interface ConfigPatchBody {
   vat_rate?: unknown;
   default_currency?: unknown;
+  enabled_currencies?: unknown;
 }
 
 /**
  * POST /admin/product-costs/config
  *
- * Persists an override for one or both settings: `{ vat_rate?, default_currency? }`.
+ * Persists an override for one or more settings:
+ * `{ vat_rate?, default_currency?, enabled_currencies? }`.
  * Only the keys present in the body are written, so saving the VAT rate
  * never disturbs a previously-saved currency (and vice versa). Passing a key
  * as `null` explicitly clears that override back to the plugin's own option -
@@ -127,17 +138,61 @@ export async function POST(req: MedusaRequest, res: MedusaResponse): Promise<voi
     }
   }
 
+  if ("enabled_currencies" in body) {
+    if (body.enabled_currencies === null) {
+      patch.enabled_currencies = null;
+    } else if (!Array.isArray(body.enabled_currencies)) {
+      res.status(400).json({
+        message:
+          "enabled_currencies must be an array of 3-letter ISO-4217 codes, or null to clear the override",
+      });
+      return;
+    } else if (body.enabled_currencies.length > MAX_ENABLED_CURRENCIES) {
+      res.status(400).json({
+        message: `enabled_currencies must not list more than ${MAX_ENABLED_CURRENCIES} currencies`,
+      });
+      return;
+    } else {
+      const normalized: string[] = [];
+      for (const entry of body.enabled_currencies) {
+        if (typeof entry !== "string" || !CURRENCY_CODE_RE.test(entry.trim().toUpperCase())) {
+          res.status(400).json({
+            message: `enabled_currencies must contain only 3-letter ISO-4217 codes, received ${JSON.stringify(entry)}`,
+          });
+          return;
+        }
+        const code = entry.trim().toUpperCase();
+        if (!normalized.includes(code)) {
+          normalized.push(code);
+        }
+      }
+      // Stored as sent (minus duplicates), NOT with the default currency
+      // folded in. The default belongs to its own column; merging it here
+      // would make clearing the default currency silently leave it behind as
+      // an "extra" nobody chose.
+      patch.enabled_currencies = normalized;
+    }
+  }
+
   const { result: settings } = await updateProductCostsSettingsWorkflow(req.scope).run({
     input: patch,
   });
   // Re-resolved rather than read off the patch: clearing the override here
   // hands the answer back to the plugin option, and then to the store's own
   // default currency, and the response has to say which of those took over.
+  // `enabledCurrencies` then goes through the same `normalizeEnabledCurrencies`
+  // the service uses, headed by that effective currency, so the list here
+  // cannot drift from the one every other caller sees.
   const currency = await resolveEffectiveCurrency(req.scope);
   res.json({
     defaultCurrency: currency.currency,
     defaultCurrencyOverridden: settings.default_currency !== null,
     defaultCurrencySource: currency.source,
+    enabledCurrencies: normalizeEnabledCurrencies(
+      currency.currency,
+      settings.enabled_currencies ?? service.moduleOptions.enabledCurrencies,
+    ),
+    enabledCurrenciesOverridden: settings.enabled_currencies !== null,
     vatRate: settings.vat_rate ?? service.moduleOptions.vatRate,
     vatRateOverridden: settings.vat_rate !== null,
   });

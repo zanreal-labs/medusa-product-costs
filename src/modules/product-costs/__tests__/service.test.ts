@@ -92,17 +92,17 @@ describe("ProductCostsModuleService.moduleOptions", () => {
     // this plugin trades in Poland, and quietly moved gross cost, margin and
     // break-even for anyone who does not.
     const service = createService(null);
-    expect(service.moduleOptions).toEqual({ defaultCurrency: null, vatRate: null, skipVariantLinking: false });
+    expect(service.moduleOptions).toEqual({ defaultCurrency: null, enabledCurrencies: [], skipVariantLinking: false, vatRate: null });
   });
 
   it("honors options passed by the consuming app", () => {
     const service = createService({ defaultCurrency: "EUR", vatRate: 0.19 });
-    expect(service.moduleOptions).toEqual({ defaultCurrency: "EUR", vatRate: 0.19, skipVariantLinking: false });
+    expect(service.moduleOptions).toEqual({ defaultCurrency: "EUR", enabledCurrencies: ["EUR"], skipVariantLinking: false, vatRate: 0.19 });
   });
 
   it("keeps an explicit zero VAT rate, which is a real answer and not an absent one", () => {
     const service = createService({ defaultCurrency: "GBP", vatRate: 0 });
-    expect(service.moduleOptions).toEqual({ defaultCurrency: "GBP", vatRate: 0, skipVariantLinking: false });
+    expect(service.moduleOptions).toEqual({ defaultCurrency: "GBP", enabledCurrencies: ["GBP"], skipVariantLinking: false, vatRate: 0 });
   });
 
   it("normalizes a configured currency to upper case", () => {
@@ -437,6 +437,154 @@ describe("ProductCostsModuleService.setVariantLinks", () => {
   });
 });
 
+describe("ProductCostsModuleService multi-currency costs", () => {
+  it("creates a second row instead of relabelling the first when the currency differs", async () => {
+    const service = createService();
+    // The EUR row exists; nothing matches (SKU-1, USD).
+    service.listCostPrices.mockResolvedValue([]);
+    service.createCostPrices.mockResolvedValue({
+      currency: "USD",
+      id: "cprc_2",
+      sku: "SKU-1",
+      unit_cost_net: 12,
+    });
+
+    const result = await service.upsertCost("SKU-1", 12, { currency: "usd", source: "manual" });
+
+    // The regression this pins: matching on sku alone found the EUR row and
+    // overwrote it, so recording a USD cost destroyed the EUR figure and
+    // left a row claiming the EUR number was always USD.
+    expect(service.listCostPrices).toHaveBeenCalledWith(
+      { currency: "USD", sku: ["SKU-1"] },
+      {},
+      expect.anything(),
+    );
+    expect(result.created).toBe(true);
+    expect(service.updateCostPrices).not.toHaveBeenCalled();
+  });
+
+  it("updates in place when the same (sku, currency) pair is costed again", async () => {
+    const service = createService();
+    service.listCostPrices.mockResolvedValue([
+      { currency: "PLN", id: "cprc_1", sku: "SKU-1", unit_cost_net: 10, variant_id: null },
+    ]);
+    service.updateCostPrices.mockResolvedValue({
+      currency: "PLN",
+      id: "cprc_1",
+      sku: "SKU-1",
+      unit_cost_net: 11,
+    });
+
+    const result = await service.upsertCost("SKU-1", 11, { source: "manual" });
+
+    expect(result.created).toBe(false);
+    expect(service.createCostPrices).not.toHaveBeenCalled();
+  });
+
+  it("reads one currency at a time, defaulting to the store's currency", async () => {
+    const service = createService();
+    service.listCostPrices.mockResolvedValue([]);
+
+    await service.getCostsBySkus(["SKU-1", "SKU-2"]);
+    expect(service.listCostPrices).toHaveBeenCalledWith({
+      currency: "PLN",
+      sku: ["SKU-1", "SKU-2"],
+    });
+
+    await service.getCostsBySkus(["SKU-1"], "eur");
+    expect(service.listCostPrices).toHaveBeenLastCalledWith({ currency: "EUR", sku: ["SKU-1"] });
+  });
+
+  it("drops the currency filter entirely on a store that has configured none", async () => {
+    const service = createService(null);
+    service.listCostPrices.mockResolvedValue([]);
+
+    await service.getCostsBySkus(["SKU-1"]);
+
+    // Such a store has at most one row per SKU - it could never have saved a
+    // second - so filtering by a currency nobody chose would only hide it.
+    expect(service.listCostPrices).toHaveBeenCalledWith({ sku: ["SKU-1"] });
+  });
+
+  it("getAllCostsBySku returns every currency, ordered so the admin renders them stably", async () => {
+    const service = createService();
+    service.listCostPrices.mockResolvedValue([
+      { currency: "EUR", id: "cprc_1", sku: "SKU-1", unit_cost_net: "10.00" },
+      { currency: "USD", id: "cprc_2", sku: "SKU-1", unit_cost_net: "12.00" },
+    ]);
+
+    const costs = await service.getAllCostsBySku("SKU-1");
+
+    expect(service.listCostPrices).toHaveBeenCalledWith(
+      { sku: ["SKU-1"] },
+      { order: { currency: "ASC" } },
+    );
+    expect(costs.map((cost) => cost.currency)).toEqual(["EUR", "USD"]);
+    expect(costs[0]?.unit_cost_net).toBe(10);
+  });
+
+  it("re-points every currency's row when a SKU moves to another variant", async () => {
+    const service = createService();
+    service.listCostPrices.mockResolvedValue([
+      { currency: "EUR", id: "cprc_1", sku: "SKU-1", variant_id: "v_old" },
+      { currency: "USD", id: "cprc_2", sku: "SKU-1", variant_id: "v_old" },
+    ]);
+    service.updateCostPrices.mockResolvedValue([]);
+
+    const changes = await service.setVariantLinks({ "SKU-1": "v_new" });
+
+    // variant_id caches which variant carries the SKU, which has nothing to
+    // do with the currency a cost is recorded in. Leaving the non-default
+    // rows behind would make "Resync variant links" report success while
+    // half the rows still point at a variant that no longer exists.
+    expect(changes).toHaveLength(2);
+    expect(service.updateCostPrices).toHaveBeenCalledWith([
+      { id: "cprc_1", variant_id: "v_new" },
+      { id: "cprc_2", variant_id: "v_new" },
+    ]);
+  });
+
+  it("filters listCosts by currency when asked, and not otherwise", async () => {
+    const service = createService();
+
+    await service.listCosts({ currency: "usd" });
+    expect(service.listAndCountCostPrices).toHaveBeenCalledWith(
+      { currency: "USD" },
+      expect.anything(),
+    );
+
+    await service.listCosts({ sku: "SKU-1" });
+    expect(service.listAndCountCostPrices).toHaveBeenLastCalledWith(
+      { sku: "SKU-1" },
+      expect.anything(),
+    );
+  });
+
+  it("resolves the enabled currency list as the default currency plus the extras", async () => {
+    const service = createService({ defaultCurrency: "PLN", enabledCurrencies: ["eur", "PLN"], vatRate: 0.23 });
+
+    // Default first, uppercased, and no duplicate of the default.
+    expect((await service.getResolvedOptions()).enabledCurrencies).toEqual(["PLN", "EUR"]);
+  });
+
+  it("treats a saved empty list as 'only the default currency', unlike never having configured one", async () => {
+    const service = createService({ defaultCurrency: "PLN", enabledCurrencies: ["EUR"], vatRate: 0.23 });
+    service.listProductCostsSettings.mockResolvedValue([
+      {
+        default_currency: null,
+        enabled_currencies: [],
+        id: "pcset_singleton",
+        vat_rate: null,
+      },
+    ]);
+
+    // `[]` is an operator having cleared the list, which is an answer;
+    // `null` would mean "never configured here" and fall back to the plugin
+    // option (["PLN", "EUR"]).
+    expect((await service.getResolvedOptions()).enabledCurrencies).toEqual(["PLN"]);
+  });
+});
+
 describe("ProductCostsModuleService.computeEconomics", () => {
   it("resolves netCost by sku when not given directly", async () => {
     const service = createService();
@@ -505,6 +653,7 @@ describe("ProductCostsModuleService settings singleton", () => {
 
     expect(settings).toEqual({
       default_currency: null,
+      enabled_currencies: null,
       id: "pcset_singleton",
       vat_rate: null,
     });
@@ -519,7 +668,12 @@ describe("ProductCostsModuleService settings singleton", () => {
 
     const settings = await service.getSettings();
 
-    expect(settings).toEqual({ default_currency: "EUR", id: "pcset_singleton", vat_rate: 0.19 });
+    expect(settings).toEqual({
+      default_currency: "EUR",
+      enabled_currencies: null,
+      id: "pcset_singleton",
+      vat_rate: 0.19,
+    });
     expect(service.createProductCostsSettings).not.toHaveBeenCalled();
   });
 
@@ -546,6 +700,7 @@ describe("ProductCostsModuleService settings singleton", () => {
 
     expect(settings).toEqual({
       default_currency: null,
+      enabled_currencies: null,
       id: "pcset_singleton",
       vat_rate: null,
     });
@@ -556,7 +711,7 @@ describe("ProductCostsModuleService settings singleton", () => {
 
     const resolved = await service.getResolvedOptions();
 
-    expect(resolved).toEqual({ defaultCurrency: "EUR", vatRate: 0.19, skipVariantLinking: false });
+    expect(resolved).toEqual({ defaultCurrency: "EUR", enabledCurrencies: ["EUR"], skipVariantLinking: false, vatRate: 0.19 });
   });
 
   it("getResolvedOptions prefers a persisted override over moduleOptions", async () => {
@@ -567,7 +722,7 @@ describe("ProductCostsModuleService settings singleton", () => {
 
     const resolved = await service.getResolvedOptions();
 
-    expect(resolved).toEqual({ defaultCurrency: "USD", vatRate: 0.08, skipVariantLinking: false });
+    expect(resolved).toEqual({ defaultCurrency: "USD", enabledCurrencies: ["USD", "PLN"], skipVariantLinking: false, vatRate: 0.08 });
   });
 
   it("getResolvedOptions falls back per-field, not all-or-nothing", async () => {
@@ -579,7 +734,7 @@ describe("ProductCostsModuleService settings singleton", () => {
 
     const resolved = await service.getResolvedOptions();
 
-    expect(resolved).toEqual({ defaultCurrency: "PLN", vatRate: 0.05, skipVariantLinking: false });
+    expect(resolved).toEqual({ defaultCurrency: "PLN", enabledCurrencies: ["PLN"], skipVariantLinking: false, vatRate: 0.05 });
   });
 
   it("updateSettings writes only the given keys and returns the refreshed row", async () => {

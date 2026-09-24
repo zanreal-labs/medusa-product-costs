@@ -1,5 +1,7 @@
 {
-  "namespaces": ["public"],
+  "namespaces": [
+    "public"
+  ],
   "name": "public",
   "tables": [
     {
@@ -81,7 +83,11 @@
           "scale": null,
           "default": null,
           "comment": null,
-          "enumItems": ["manual", "csv", "api"],
+          "enumItems": [
+            "manual",
+            "csv",
+            "api"
+          ],
           "mappedType": "enum"
         },
         "unit_cost_net": {
@@ -185,15 +191,6 @@
       "schema": "public",
       "indexes": [
         {
-          "keyName": "IDX_cost_price_sku_unique",
-          "columnNames": [],
-          "composite": false,
-          "constraint": false,
-          "primary": false,
-          "unique": false,
-          "expression": "CREATE UNIQUE INDEX IF NOT EXISTS \"IDX_cost_price_sku_unique\" ON \"cost_price\" (\"sku\") WHERE deleted_at IS NULL"
-        },
-        {
           "keyName": "IDX_cost_price_deleted_at",
           "columnNames": [],
           "composite": false,
@@ -203,8 +200,19 @@
           "expression": "CREATE INDEX IF NOT EXISTS \"IDX_cost_price_deleted_at\" ON \"cost_price\" (\"deleted_at\") WHERE deleted_at IS NULL"
         },
         {
+          "keyName": "IDX_cost_price_sku_currency_unique",
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false,
+          "expression": "CREATE UNIQUE INDEX IF NOT EXISTS \"IDX_cost_price_sku_currency_unique\" ON \"cost_price\" (\"sku\", \"currency\") WHERE deleted_at IS NULL"
+        },
+        {
           "keyName": "cost_price_pkey",
-          "columnNames": ["id"],
+          "columnNames": [
+            "id"
+          ],
           "composite": false,
           "constraint": true,
           "primary": true,
@@ -310,7 +318,11 @@
           "scale": null,
           "default": null,
           "comment": null,
-          "enumItems": ["manual", "csv", "api"],
+          "enumItems": [
+            "manual",
+            "csv",
+            "api"
+          ],
           "mappedType": "enum"
         },
         "unit_cost_net": {
@@ -417,7 +429,9 @@
         },
         {
           "keyName": "cost_price_history_pkey",
-          "columnNames": ["id"],
+          "columnNames": [
+            "id"
+          ],
           "composite": false,
           "constraint": true,
           "primary": true,
@@ -461,6 +475,22 @@
           "comment": null,
           "enumItems": [],
           "mappedType": "text"
+        },
+        "enabled_currencies": {
+          "name": "enabled_currencies",
+          "type": "text[]",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "array"
         },
         "vat_rate": {
           "name": "vat_rate",
@@ -557,7 +587,9 @@
         },
         {
           "keyName": "product_costs_settings_pkey",
-          "columnNames": ["id"],
+          "columnNames": [
+            "id"
+          ],
           "composite": false,
           "constraint": true,
           "primary": true,

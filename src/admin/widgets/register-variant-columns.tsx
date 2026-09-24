@@ -76,7 +76,16 @@ interface ConfigResponse {
   vatRate: number | null;
   /** `null` when no default currency is configured - this plugin ships no default one. */
   defaultCurrency: string | null;
+  /**
+   * Every currency this store records costs in. Optional so an admin bundle
+   * newer than the backend it talks to still sizes its query sanely (one row
+   * per SKU, the pre-multi-currency assumption).
+   */
+  enabledCurrencies?: string[];
 }
+
+/** The plugin's own `MAX_LIMIT` on `/admin/product-costs`. Asking for more is a 400 waiting to happen. */
+const MAX_COST_ROWS = 500;
 
 /**
  * The VAT rate and default currency rarely change and are identical for every
@@ -128,10 +137,16 @@ interface VariantSrpRow {
  * disagree about what a variant's SRP is.
  */
 const fetchEconomics = async (skus: string[]): Promise<Map<string, CatalogEconomics>> => {
-  const [config, costsResponse, variantsResponse] = await Promise.all([
-    loadConfig(),
+  // The config is needed before the cost query can be sized: a SKU carries one
+  // cost row per currency it is costed in, so `limit: skus.length` would
+  // silently truncate the page on a multi-currency store and leave the last
+  // rows reading "not costed".
+  const config = await loadConfig();
+  const currencyCount = Math.max(config.enabledCurrencies?.length ?? 1, 1);
+
+  const [costsResponse, variantsResponse] = await Promise.all([
     sdk.client.fetch<{ cost_prices: CostPriceLike[] }>("/admin/product-costs", {
-      query: { limit: skus.length, sku: skus },
+      query: { limit: Math.min(skus.length * currencyCount, MAX_COST_ROWS), sku: skus },
     }),
     sdk.client.fetch<{ variants: VariantSrpRow[] }>("/admin/product-variants", {
       query: {
@@ -152,7 +167,12 @@ const fetchEconomics = async (skus: string[]): Promise<Map<string, CatalogEconom
 
   const bySku = new Map<string, CatalogEconomics>();
   for (const sku of skus) {
-    const cost = resolveVariantCost(costsResponse.cost_prices, sku, config.vatRate);
+    const cost = resolveVariantCost(
+      costsResponse.cost_prices,
+      sku,
+      config.vatRate,
+      config.defaultCurrency,
+    );
     bySku.set(sku, {
       cost,
       currency: cost?.currency ?? config.defaultCurrency ?? "",

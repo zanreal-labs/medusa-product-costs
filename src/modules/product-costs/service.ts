@@ -30,6 +30,7 @@ import type {
 import {
   CURRENCY_NOT_CONFIGURED_MESSAGE,
   VAT_RATE_NOT_CONFIGURED_MESSAGE,
+  normalizeEnabledCurrencies,
   resolveModuleOptions,
 } from "./types";
 
@@ -85,6 +86,9 @@ function toCostPriceHistoryDTO(row: CostPriceHistoryDTO): CostPriceHistoryDTO {
 function toSettingsDTO(row: ProductCostsSettingsRow): ProductCostsSettingsRow {
   return {
     ...row,
+    // `null` and `[]` are different states here (never configured vs
+    // deliberately cleared), so an absent column becomes `null`, not `[]`.
+    enabled_currencies: row.enabled_currencies ?? null,
     vat_rate: row.vat_rate === null || row.vat_rate === undefined ? null : Number(row.vat_rate),
   };
 }
@@ -135,7 +139,12 @@ class ProductCostsModuleService extends MedusaService({
     }
     try {
       const [created] = await this.createProductCostsSettings([
-        { default_currency: null, id: PRODUCT_COSTS_SETTINGS_ID, vat_rate: null },
+        {
+          default_currency: null,
+          enabled_currencies: null,
+          id: PRODUCT_COSTS_SETTINGS_ID,
+          vat_rate: null,
+        },
       ]);
       return toSettingsDTO(created as unknown as ProductCostsSettingsRow);
     } catch (error) {
@@ -195,8 +204,18 @@ class ProductCostsModuleService extends MedusaService({
    */
   async getResolvedOptions(): Promise<ResolvedProductCostsModuleOptions> {
     const settings = await this.getSettings();
+    const defaultCurrency = settings.default_currency ?? this.moduleOptions_.defaultCurrency;
     return {
-      defaultCurrency: settings.default_currency ?? this.moduleOptions_.defaultCurrency,
+      defaultCurrency,
+      // Per field, like every other setting here: an operator who saved a
+      // currency list but no default currency still gets the plugin's default
+      // currency at the head of that list. `null` (never configured here)
+      // falls back to the plugin option; `[]` (deliberately cleared) does
+      // not, and leaves only the default currency.
+      enabledCurrencies: normalizeEnabledCurrencies(
+        defaultCurrency,
+        settings.enabled_currencies ?? this.moduleOptions_.enabledCurrencies,
+      ),
       vatRate: settings.vat_rate ?? this.moduleOptions_.vatRate,
       skipVariantLinking: this.moduleOptions_.skipVariantLinking,
     };
@@ -255,11 +274,16 @@ class ProductCostsModuleService extends MedusaService({
     // the money convention used everywhere else in this module.
     const canonicalUnitCostNet = round2(unitCostNet);
 
-    const currency = input.currency ?? (await this.getResolvedOptions()).defaultCurrency;
+    const requested = input.currency?.trim().toUpperCase();
+    const currency = requested || (await this.getResolvedOptions()).defaultCurrency;
     if (!currency) {
       throw new MedusaError(MedusaError.Types.NOT_ALLOWED, CURRENCY_NOT_CONFIGURED_MESSAGE);
     }
-    const [existing] = await this.listCostPrices({ sku: [trimmedSku] }, {}, sharedContext);
+    // Matched on (sku, currency), not on sku alone: a cost in a second
+    // currency is a new row, not an overwrite of the first one. Saving a USD
+    // cost for a SKU that already has a EUR one used to silently relabel the
+    // EUR row as USD and destroy the original figure.
+    const [existing] = await this.listCostPrices({ currency, sku: [trimmedSku] }, {}, sharedContext);
     const previousVariantId = (existing?.variant_id as string | null | undefined) ?? null;
 
     const variantIdPatch = "variantId" in input ? { variant_id: input.variantId ?? null } : {};
@@ -314,18 +338,56 @@ class ProductCostsModuleService extends MedusaService({
     return { costPrice, created, previousVariantId };
   }
 
-  async getCostsBySkus(skus: string[]): Promise<CostPriceDTO[]> {
+  /**
+   * One cost per SKU, in a single currency: the one named, or the store's
+   * default when the caller does not name one.
+   *
+   * The currency filter is what keeps this method's contract intact now that
+   * a SKU can carry several costs. Without it the same call would return two
+   * rows for one SKU and every caller that does `rows[0]` - the variant
+   * columns widget, `computeEconomics`, the product card - would show a
+   * margin computed against whichever row the database felt like returning
+   * first. When no currency resolves anywhere (a store that has configured
+   * none), the filter is dropped rather than faked: such a store has at most
+   * one row per SKU anyway, because it could never have saved a second.
+   */
+  async getCostsBySkus(skus: string[], currency?: string): Promise<CostPriceDTO[]> {
     const trimmed = [...new Set(skus.map((s) => s.trim()).filter(Boolean))];
     if (trimmed.length === 0) {
       return [];
     }
-    const rows = (await this.listCostPrices({ sku: trimmed })) as unknown as CostPriceDTO[];
+    const resolvedCurrency =
+      currency?.trim().toUpperCase() || (await this.getResolvedOptions()).defaultCurrency;
+    const where: Record<string, unknown> = { sku: trimmed };
+    if (resolvedCurrency) {
+      where.currency = resolvedCurrency;
+    }
+    const rows = (await this.listCostPrices(where)) as unknown as CostPriceDTO[];
     return rows.map(toCostPriceDTO);
   }
 
-  async getCostBySku(sku: string): Promise<CostPriceDTO | undefined> {
-    const [costPrice] = await this.getCostsBySkus([sku]);
+  async getCostBySku(sku: string, currency?: string): Promise<CostPriceDTO | undefined> {
+    const [costPrice] = await this.getCostsBySkus([sku], currency);
     return costPrice;
+  }
+
+  /**
+   * Every currency's cost for one SKU, ordered by currency so the admin cards
+   * render the same sequence on every load. This is the multi-currency read;
+   * `getCostBySku` stays single-currency on purpose, because most callers
+   * want one number and picking it for them is the whole point of having a
+   * default currency.
+   */
+  async getAllCostsBySku(sku: string): Promise<CostPriceDTO[]> {
+    const trimmed = sku.trim();
+    if (!trimmed) {
+      return [];
+    }
+    const rows = (await this.listCostPrices(
+      { sku: [trimmed] },
+      { order: { currency: "ASC" } },
+    )) as unknown as CostPriceDTO[];
+    return rows.map(toCostPriceDTO);
   }
 
   async listCosts(
@@ -339,6 +401,10 @@ class ProductCostsModuleService extends MedusaService({
       where.sku = { $ilike: `%${filters.q}%` };
     } else if (filters.sku) {
       where.sku = filters.sku;
+    }
+
+    if (filters.currency) {
+      where.currency = filters.currency.trim().toUpperCase();
     }
 
     const [costs, count] = await this.listAndCountCostPrices(where, {
@@ -385,7 +451,7 @@ class ProductCostsModuleService extends MedusaService({
   async computeEconomics(input: ComputeEconomicsInput): Promise<EconomicsResult> {
     let { netCost } = input;
     if (netCost === undefined && input.sku) {
-      const costPrice = await this.getCostBySku(input.sku);
+      const costPrice = await this.getCostBySku(input.sku, input.currency);
       netCost = costPrice ? Number(costPrice.unit_cost_net) : undefined;
     }
 
@@ -469,21 +535,28 @@ class ProductCostsModuleService extends MedusaService({
       return [];
     }
 
-    const existing = await this.getCostsBySkus(skus);
-    const existingBySku = new Map(existing.map((costPrice) => [costPrice.sku, costPrice]));
+    // Every currency's row for these SKUs, not just the default currency's:
+    // `variant_id` caches which variant carries the SKU, which is a fact about
+    // the SKU and not about the currency a cost happens to be recorded in.
+    // Filtering by currency here would leave a store's non-default rows
+    // pointing at a variant that was deleted and recreated, and the repair
+    // action ("Resync variant links") would report success without touching
+    // them.
+    const rows = (
+      (await this.listCostPrices({ sku: skus })) as unknown as CostPriceDTO[]
+    ).map(toCostPriceDTO);
 
-    const changes = skus
-      .map((sku) => {
-        const row = existingBySku.get(sku);
-        const nextVariantId = bySku[sku] ?? null;
-        if (!row || row.variant_id === nextVariantId) {
+    const changes = rows
+      .map((row) => {
+        const nextVariantId = bySku[row.sku] ?? null;
+        if (row.variant_id === nextVariantId) {
           return;
         }
         return {
           costPriceId: row.id,
           nextVariantId,
           previousVariantId: row.variant_id,
-          sku,
+          sku: row.sku,
         };
       })
       .filter((change): change is VariantLinkChange => Boolean(change));

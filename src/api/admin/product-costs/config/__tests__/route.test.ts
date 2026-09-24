@@ -23,13 +23,25 @@ import { GET, POST } from "../route";
 
 function createService(
   overrides: {
-    resolved?: { defaultCurrency: string | null; vatRate: number | null };
-    settings?: { default_currency: string | null; vat_rate: number | null };
-    moduleOptions?: { defaultCurrency: string | null; vatRate: number | null };
+    resolved?: { defaultCurrency: string | null; enabledCurrencies?: string[]; vatRate: number | null };
+    settings?: {
+      default_currency: string | null;
+      enabled_currencies?: string[] | null;
+      vat_rate: number | null;
+    };
+    moduleOptions?: { defaultCurrency: string | null; enabledCurrencies?: string[]; vatRate: number | null };
   } = {},
 ) {
-  const resolved = overrides.resolved ?? { defaultCurrency: "PLN", vatRate: 0.23 };
-  const settings = overrides.settings ?? { default_currency: null, vat_rate: null };
+  const resolved = overrides.resolved ?? {
+    defaultCurrency: "PLN",
+    enabledCurrencies: ["PLN"],
+    vatRate: 0.23,
+  };
+  const settings = overrides.settings ?? {
+    default_currency: null,
+    enabled_currencies: null,
+    vat_rate: null,
+  };
   return {
     getResolvedOptions: vi.fn().mockResolvedValue(resolved),
     getSettings: vi.fn().mockResolvedValue({ id: "pcset_singleton", ...settings }),
@@ -71,7 +83,9 @@ function createScope(service: unknown, storeCurrency?: string) {
 
 beforeEach(() => {
   runMock.mockReset();
-  runMock.mockResolvedValue({ result: { default_currency: null, vat_rate: null } });
+  runMock.mockResolvedValue({
+    result: { default_currency: null, enabled_currencies: null, vat_rate: null },
+  });
   updateProductCostsSettingsWorkflowMock.mockClear();
 });
 
@@ -87,6 +101,8 @@ describe("GET /admin/product-costs/config", () => {
       defaultCurrency: "PLN",
       defaultCurrencyOverridden: false,
       defaultCurrencySource: "plugin",
+      enabledCurrencies: ["PLN"],
+      enabledCurrenciesOverridden: false,
       vatRate: 0.23,
       vatRateOverridden: false,
     });
@@ -94,8 +110,8 @@ describe("GET /admin/product-costs/config", () => {
 
   it("reports the persisted override, resolved through the service", async () => {
     const service = createService({
-      resolved: { defaultCurrency: "EUR", vatRate: 0.19 },
-      settings: { default_currency: "EUR", vat_rate: 0.19 },
+      resolved: { defaultCurrency: "EUR", enabledCurrencies: ["EUR", "USD"], vatRate: 0.19 },
+      settings: { default_currency: "EUR", enabled_currencies: ["USD"], vat_rate: 0.19 },
     });
     const req = { scope: createScope(service) } as unknown as MedusaRequest;
     const res = createMockResponse();
@@ -106,6 +122,8 @@ describe("GET /admin/product-costs/config", () => {
       defaultCurrency: "EUR",
       defaultCurrencyOverridden: true,
       defaultCurrencySource: "settings",
+      enabledCurrencies: ["EUR", "USD"],
+      enabledCurrenciesOverridden: true,
       vatRate: 0.19,
       vatRateOverridden: true,
     });
@@ -127,6 +145,11 @@ describe("GET /admin/product-costs/config", () => {
       // Named, not silently presented as a chosen setting: the store's selling
       // currency is not necessarily the currency purchase invoices arrive in.
       defaultCurrencySource: "store",
+      // Headed by the effective currency even though it came from the store:
+      // the list is what the cost card offers, and offering nothing would
+      // leave the one currency this store can actually save in unreachable.
+      enabledCurrencies: ["GBP"],
+      enabledCurrenciesOverridden: false,
       vatRate: 0.23,
       vatRateOverridden: false,
     });
@@ -163,6 +186,8 @@ describe("GET /admin/product-costs/config", () => {
       defaultCurrency: null,
       defaultCurrencyOverridden: false,
       defaultCurrencySource: null,
+      enabledCurrencies: [],
+      enabledCurrenciesOverridden: false,
       vatRate: null,
       vatRateOverridden: false,
     });
@@ -183,7 +208,7 @@ describe("GET /admin/product-costs/config", () => {
 describe("POST /admin/product-costs/config", () => {
   it("persists a vat_rate override through the workflow and returns the resolved config", async () => {
     runMock.mockResolvedValue({
-      result: { default_currency: null, vat_rate: 0.19 },
+      result: { default_currency: null, enabled_currencies: null, vat_rate: 0.19 },
     });
     const service = createService();
     const req = {
@@ -199,6 +224,8 @@ describe("POST /admin/product-costs/config", () => {
       defaultCurrency: "PLN",
       defaultCurrencyOverridden: false,
       defaultCurrencySource: "plugin",
+      enabledCurrencies: ["PLN"],
+      enabledCurrenciesOverridden: false,
       vatRate: 0.19,
       vatRateOverridden: true,
     });
@@ -206,7 +233,7 @@ describe("POST /admin/product-costs/config", () => {
 
   it("uppercases and validates default_currency before persisting", async () => {
     runMock.mockResolvedValue({
-      result: { default_currency: "EUR", vat_rate: null },
+      result: { default_currency: "EUR", enabled_currencies: null, vat_rate: null },
     });
     const service = createService();
     const req = {
@@ -264,7 +291,7 @@ describe("POST /admin/product-costs/config", () => {
 
   it("clears an override when a key is explicitly sent as null", async () => {
     runMock.mockResolvedValue({
-      result: { default_currency: null, vat_rate: null },
+      result: { default_currency: null, enabled_currencies: null, vat_rate: null },
     });
     const service = createService();
     const req = {

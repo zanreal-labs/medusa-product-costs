@@ -35,7 +35,8 @@
       },
       "noCost": "no purchase cost",
       "noSrp": "no SRP",
-      "noVatRate": "no VAT rate"
+      "noVatRate": "no VAT rate",
+      "currencySelectLabel": "Cost currency"
     },
     "settings": {
       "vatRateInvalid": "Enter a VAT rate between 0 and 100.",
@@ -74,7 +75,9 @@
       "import": "Import",
       "uploadInstead": "Upload a file instead",
       "importErrorsHeading": "{{count}} row(s) could not be imported:",
-      "importErrorLinePrefix": "Line"
+      "importErrorLinePrefix": "Line",
+      "extraCurrenciesLabel": "Also record costs in",
+      "extraCurrenciesHint": "For stores buying the same article in more than one currency. Each ticked currency gets its own cost per SKU, entered independently - this plugin never converts one into another. Leave empty if every supplier invoices you in the default currency."
     },
     "entityCard": {
       "heading": "Cost",

@@ -35,7 +35,8 @@
       },
       "noCost": "brak ceny zakupu",
       "noSrp": "brak SRP",
-      "noVatRate": "brak stawki VAT"
+      "noVatRate": "brak stawki VAT",
+      "currencySelectLabel": "Waluta kosztu"
     },
     "settings": {
       "vatRateInvalid": "Podaj stawkę VAT z zakresu od 0 do 100.",
@@ -74,7 +75,9 @@
       "import": "Importuj",
       "uploadInstead": "Wgraj plik zamiast tego",
       "importErrorsHeading": "Liczba niezaimportowanych wierszy: {{count}}",
-      "importErrorLinePrefix": "Wiersz"
+      "importErrorLinePrefix": "Wiersz",
+      "extraCurrenciesLabel": "Zapisuj koszty także w",
+      "extraCurrenciesHint": "Dla sklepów kupujących ten sam towar w kilku walutach. Każda zaznaczona waluta ma własny koszt dla SKU, wpisywany osobno - ta wtyczka nigdy nie przelicza jednej na drugą. Zostaw puste, jeśli wszyscy dostawcy fakturują w walucie domyślnej."
     },
     "entityCard": {
       "heading": "Koszt",

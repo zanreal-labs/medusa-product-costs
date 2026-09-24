@@ -43,6 +43,16 @@ export interface ProductCostsModuleOptions {
    * product module and maintain the `CostPrice ↔ ProductVariant` link).
    */
   skipVariantLinking?: boolean;
+  /**
+   * Currencies this store records costs in, beyond `defaultCurrency`. Drives
+   * which currency rows the admin cost cards offer to fill in.
+   *
+   * Not a whitelist: a CSV import or an API caller naming a currency outside
+   * this list still stores its cost. The list says what an operator is
+   * routinely asked for, not what the data model will accept - a real invoice
+   * in an unlisted currency is not a mistake for a setting to veto.
+   */
+  enabledCurrencies?: string[];
 }
 
 export interface ResolvedProductCostsModuleOptions {
@@ -52,6 +62,12 @@ export interface ResolvedProductCostsModuleOptions {
   defaultCurrency: string | null;
   /** Whether variant-link resolution is disabled. See `ProductCostsModuleOptions.skipVariantLinking`. */
   skipVariantLinking: boolean;
+  /**
+   * Every currency the admin offers a cost row for: the default currency
+   * first, then the configured extras, uppercased and deduplicated. Empty
+   * only when no currency is configured anywhere at all.
+   */
+  enabledCurrencies: string[];
 }
 
 /** The one message every "no VAT rate configured" refusal uses, so they cannot drift apart. */
@@ -62,12 +78,30 @@ export const VAT_RATE_NOT_CONFIGURED_MESSAGE =
 export const CURRENCY_NOT_CONFIGURED_MESSAGE =
   "No default currency is configured, so this cost cannot be stored without guessing what its number means. Set one under Settings > Product costs, or pass an explicit currency with the cost. This plugin ships without a default currency on purpose - a wrong one mislabels every stored cost, and nothing downstream can tell the difference afterwards.";
 
+/**
+ * The default currency first, then the extras, uppercased, trimmed, with
+ * blanks and duplicates dropped. Shared by the plugin options and the
+ * persisted settings so the two cannot order or normalize the list
+ * differently.
+ */
+export function normalizeEnabledCurrencies(
+  defaultCurrency: string | null,
+  extras: readonly string[] | null | undefined,
+): string[] {
+  const codes = [defaultCurrency, ...(extras ?? [])]
+    .map((code) => code?.trim().toUpperCase())
+    .filter((code): code is string => Boolean(code));
+  return [...new Set(codes)];
+}
+
 export function resolveModuleOptions(
   options?: ProductCostsModuleOptions,
 ): ResolvedProductCostsModuleOptions {
   const currency = options?.defaultCurrency?.trim().toUpperCase();
+  const defaultCurrency = currency ? currency : null;
   return {
-    defaultCurrency: currency ? currency : null,
+    defaultCurrency,
+    enabledCurrencies: normalizeEnabledCurrencies(defaultCurrency, options?.enabledCurrencies),
     skipVariantLinking: options?.skipVariantLinking === true,
     vatRate: typeof options?.vatRate === "number" ? options.vatRate : null,
   };
@@ -93,6 +127,12 @@ export interface UpsertCostInput {
 export interface ListCostsFilters {
   sku?: string | string[];
   q?: string;
+  /**
+   * Narrows to costs recorded in this currency. Omitted, a SKU with costs in
+   * several currencies contributes one row per currency - the list endpoint
+   * shows what is stored rather than picking a winner.
+   */
+  currency?: string;
 }
 
 export interface ListCostsPagination {
@@ -154,6 +194,12 @@ export interface ImportCsvOptions {
 export interface ComputeEconomicsInput {
   /** Looked up when `netCost` is not given directly. */
   sku?: string;
+  /**
+   * Which currency's cost to look up for `sku`. Omitted, the store's default
+   * currency is used - never "whichever row came back first", which would
+   * make the same call return different margins on different days.
+   */
+  currency?: string;
   netCost?: number;
   sellingPrice?: number;
   commissionRate?: number;
@@ -171,6 +217,8 @@ export interface ProductCostsSettingsRow {
   id: string;
   vat_rate: number | null;
   default_currency: string | null;
+  /** `null` = never configured here. `[]` = deliberately cleared. See the model. */
+  enabled_currencies: string[] | null;
 }
 
 /**
@@ -181,4 +229,5 @@ export interface ProductCostsSettingsRow {
 export interface ProductCostsSettingsPatch {
   vat_rate?: number | null;
   default_currency?: string | null;
+  enabled_currencies?: string[] | null;
 }

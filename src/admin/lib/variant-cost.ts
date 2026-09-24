@@ -32,6 +32,12 @@ export interface VariantCost {
   grossCost: number | undefined;
   /** The currency the cost is recorded in. */
   currency: string;
+  /**
+   * How many *other* currencies this SKU is also costed in. Zero for the
+   * single-currency store, which is most of them. The column appends it so a
+   * figure that is one of several never passes for the whole story.
+   */
+  otherCurrencies: number;
 }
 
 /**
@@ -41,17 +47,32 @@ export interface VariantCost {
  * Returns `null` when the variant has no SKU, or has one with no curated cost -
  * both render as "not costed", which is a fact about that one variant rather
  * than a fraction of a product.
+ *
+ * A SKU can carry a cost in several currencies. `preferredCurrency` (the
+ * store's default) decides which one this one-line column shows; the rest are
+ * counted, not dropped silently. When the SKU has costs but none in the
+ * preferred currency, the first row still wins over showing nothing - a cost
+ * in the wrong currency is information, an empty cell is not - and the count
+ * makes it visible that others exist.
  */
 export function resolveVariantCost(
   costPrices: CostPriceLike[],
   sku: string | null,
   /** `null` when no VAT rate is configured: the net cost still reads true, the gross one cannot be worked out. */
   vatRate: number | null,
+  /** `null`/omitted on a store that has configured no default currency. */
+  preferredCurrency?: string | null,
 ): VariantCost | null {
   if (!sku) {
     return null;
   }
-  const match = costPrices.find((cost) => cost.sku === sku);
+  const matches = costPrices.filter((cost) => cost.sku === sku);
+  if (matches.length === 0) {
+    return null;
+  }
+  const match = preferredCurrency
+    ? (matches.find((cost) => cost.currency === preferredCurrency) ?? matches[0])
+    : matches[0];
   if (!match) {
     return null;
   }
@@ -61,13 +82,15 @@ export function resolveVariantCost(
     currency: match.currency,
     grossCost: vatRate === null ? undefined : grossFromNet(netCost, vatRate),
     netCost,
+    otherCurrencies: matches.length - 1,
   };
 }
 
 /**
- * Render a resolved cost as the column's label, e.g. `"12.50 PLN"`. Plain, and
- * exactly one number: the net purchase cost of this variant.
+ * Render a resolved cost as the column's label, e.g. `"12.50 PLN"`, or
+ * `"12.50 PLN +1"` when the same SKU is also costed in another currency.
  */
 export function formatVariantCost(cost: VariantCost): string {
-  return `${cost.netCost.toFixed(2)} ${cost.currency}`;
+  const label = `${cost.netCost.toFixed(2)} ${cost.currency}`;
+  return cost.otherCurrencies > 0 ? `${label} +${cost.otherCurrencies}` : label;
 }

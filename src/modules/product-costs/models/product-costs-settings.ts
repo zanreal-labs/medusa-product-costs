@@ -27,6 +27,18 @@ import { model } from "@medusajs/framework/utils";
 const ProductCostsSettings = model.define("product_costs_settings", {
   /** ISO-4217 currency code override, e.g. "PLN". `null` = use moduleOptions.defaultCurrency. */
   default_currency: model.text().nullable(),
+  /**
+   * The currencies this store records costs in, beyond the default one, as
+   * ISO-4217 codes. Drives which currency rows the cost cards offer to fill
+   * in; it does not restrict what may be stored, because a CSV import or an
+   * API caller naming a currency outside this list is recording a real
+   * invoice, not making a mistake for this setting to veto.
+   *
+   * `null` (not `[]`) is the untouched state, and the two differ: `null`
+   * means "never configured", and resolves to just the default currency,
+   * while an empty array is an operator having deliberately cleared the list.
+   */
+  enabled_currencies: model.array().nullable(),
   id: model.id({ prefix: "pcset" }).primaryKey(),
   /** VAT rate override as a fraction (0.23 = 23%). `null` = use moduleOptions.vatRate. */
   vat_rate: model.bigNumber().nullable(),

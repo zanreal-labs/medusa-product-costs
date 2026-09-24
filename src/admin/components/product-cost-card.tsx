@@ -1,5 +1,16 @@
 import type { AdminProductVariant } from "@medusajs/framework/types";
-import { Badge, Button, Container, Drawer, Heading, Input, Table, Text, toast } from "@medusajs/ui";
+import {
+  Badge,
+  Button,
+  Container,
+  Drawer,
+  Heading,
+  Input,
+  Select,
+  Table,
+  Text,
+  toast,
+} from "@medusajs/ui";
 import { readVariantSrp } from "@zanreal/medusa-admin-kit";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -39,6 +50,9 @@ import type { SrpMargin } from "../lib/srp-margin";
  */
 const VARIANT_FETCH_LIMIT = 200;
 
+/** The plugin's own `MAX_LIMIT` on `/admin/product-costs`; asking for more is a 400. */
+const MAX_COST_ROWS = 500;
+
 /**
  * Variant fields this card needs. `metadata` is what carries the SRP the margin
  * is measured against, so it is not optional here even though the cost itself
@@ -51,6 +65,12 @@ interface ConfigResponse {
   vatRate: number | null;
   /** `null` when no default currency is configured - this plugin ships no default one. */
   defaultCurrency: string | null;
+  /**
+   * Every currency this store records costs in, default first. Optional so an
+   * admin bundle newer than the backend it talks to falls back to the
+   * single-currency behaviour instead of rendering an empty selector.
+   */
+  enabledCurrencies?: string[];
 }
 
 interface CostPriceDTO {
@@ -67,6 +87,18 @@ interface CostHistoryDTO {
   source: string;
   changed_by: string | null;
   changed_at: string;
+}
+
+/**
+ * A variant as this card needs it, before a currency is chosen. Kept in state
+ * so changing the currency re-derives the rows without refetching variants,
+ * their SRP or their costs.
+ */
+interface VariantSeed {
+  variantId: string;
+  variantTitle: string;
+  sku: string;
+  srp?: number;
 }
 
 interface CostRow {
@@ -116,6 +148,17 @@ export const ProductCostCard = ({
   const [config, setConfig] = useState<ConfigResponse | null>(null);
   const [rows, setRows] = useState<CostRow[]>([]);
   const [loading, setLoading] = useState(true);
+  /**
+   * The currency this card is costing in. One card-level choice rather than a
+   * currency column per variant: a product with forty variants and three
+   * currencies would otherwise render a hundred and twenty editable cells,
+   * and an operator entering supplier prices works through one invoice, in
+   * one currency, at a time.
+   */
+  const [currency, setCurrency] = useState<string>("");
+  /** Every currency's cost for every SKU on this page, so switching currency costs no request. */
+  const [costs, setCosts] = useState<CostPriceDTO[]>([]);
+  const [variantSeeds, setVariantSeeds] = useState<VariantSeed[]>([]);
 
   const [historySku, setHistorySku] = useState<string | null>(null);
   const [history, setHistory] = useState<CostHistoryDTO[]>([]);
@@ -160,10 +203,14 @@ export const ProductCostCard = ({
           variants.map((variant) => variant.sku).filter((sku): sku is string => Boolean(sku)),
         ),
       ];
+      // No currency filter, and a limit sized for one row per SKU per
+      // currency: the card holds every currency's cost so the selector below
+      // can switch between them without going back to the server.
+      const currencyCount = Math.max(configRes.enabledCurrencies?.length ?? 1, 1);
       const costsRes =
         skus.length > 0
           ? await sdk.client.fetch<{ cost_prices: CostPriceDTO[] }>("/admin/product-costs", {
-              query: { limit: skus.length, sku: skus },
+              query: { limit: Math.min(skus.length * currencyCount, MAX_COST_ROWS), sku: skus },
             })
           : { cost_prices: [] as CostPriceDTO[] };
 
@@ -171,12 +218,14 @@ export const ProductCostCard = ({
         return;
       }
 
-      const bySku = new Map(costsRes.cost_prices.map((costPrice) => [costPrice.sku, costPrice]));
-
       setConfig(configRes);
-      setRows(
+      setCosts(costsRes.cost_prices);
+      setCurrency(
+        (previous) =>
+          previous || configRes.defaultCurrency || (configRes.enabledCurrencies?.[0] ?? ""),
+      );
+      setVariantSeeds(
         variants.map((variant) => {
-          const existing = variant.sku ? bySku.get(variant.sku) : undefined;
           // admin-kit's own reader, so this card and the Catalog's SRP column
           // can never disagree about what a variant's SRP is.
           const srp = readVariantSrp({
@@ -184,11 +233,8 @@ export const ProductCostCard = ({
             product: { metadata: resolvedProductMetadata },
           });
           return {
-            currency: existing?.currency ?? configRes.defaultCurrency ?? "",
-            saving: false,
             sku: variant.sku ?? "",
             srp: srp === null ? undefined : srp,
-            unitCostNet: existing ? String(existing.unit_cost_net) : "",
             variantId: variant.id,
             variantTitle: variant.title ?? variant.sku ?? variant.id,
           };
@@ -214,6 +260,28 @@ export const ProductCostCard = ({
     // Re-run only when the product (or the single variant) changes.
   }, [productId, variantId, embeddedVariants, productMetadata]);
 
+  // Derive the editable rows from what was loaded plus the chosen currency.
+  // Switching currency therefore discards unsaved edits, which is the honest
+  // behaviour: an unsaved number typed against EUR is not a USD cost, and
+  // carrying it over would be the card inventing a figure.
+  useEffect(() => {
+    const byKey = new Map(costs.map((cost) => [`${cost.sku}|${cost.currency}`, cost]));
+    setRows(
+      variantSeeds.map((seed) => {
+        const existing = seed.sku ? byKey.get(`${seed.sku}|${currency}`) : undefined;
+        return {
+          currency,
+          saving: false,
+          sku: seed.sku,
+          srp: seed.srp,
+          unitCostNet: existing ? String(existing.unit_cost_net) : "",
+          variantId: seed.variantId,
+          variantTitle: seed.variantTitle,
+        };
+      }),
+    );
+  }, [variantSeeds, costs, currency]);
+
   const updateRow = (rowVariantId: string, value: string) => {
     setRows((prev) =>
       prev.map((row) => (row.variantId === rowVariantId ? { ...row, unitCostNet: value } : row)),
@@ -237,9 +305,20 @@ export const ProductCostCard = ({
 
     try {
       const res = await sdk.client.fetch<{ cost_price: CostPriceDTO }>("/admin/product-costs", {
-        body: { sku: row.sku, unit_cost_net: unitCostNet },
+        // The currency travels with the write. Without it the server would
+        // fall back to the store default, so costing in a second currency
+        // would quietly overwrite the default-currency row instead.
+        body: { currency: row.currency || undefined, sku: row.sku, unit_cost_net: unitCostNet },
         method: "POST",
       });
+      // Keep the loaded set in step, so switching currency and back shows the
+      // value just saved rather than the one this card started with.
+      setCosts((prev) => [
+        ...prev.filter(
+          (cost) => !(cost.sku === res.cost_price.sku && cost.currency === res.cost_price.currency),
+        ),
+        res.cost_price,
+      ]);
       setRows((prev) =>
         prev.map((r) =>
           r.variantId === row.variantId
@@ -322,14 +401,43 @@ export const ProductCostCard = ({
       <div className="flex items-center justify-between px-6 py-4">
         <Heading level="h2">{t("productCosts.widget.heading", "Product costs")}</Heading>
         {config ? (
-          <Text className="text-ui-fg-subtle" size="small">
-            {config.vatRate === null
-              ? t("productCosts.widget.vatNotSet", "VAT not set")
-              : interpolate(t("productCosts.widget.vatPercent", "VAT {{percent}}%"), {
-                  percent: Math.round(config.vatRate * 100),
-                })}{" "}
-            · {config.defaultCurrency ?? t("productCosts.widget.currencyNotSet", "currency not set")}
-          </Text>
+          <div className="flex items-center gap-x-3">
+            <Text className="text-ui-fg-subtle" size="small">
+              {config.vatRate === null
+                ? t("productCosts.widget.vatNotSet", "VAT not set")
+                : interpolate(t("productCosts.widget.vatPercent", "VAT {{percent}}%"), {
+                    percent: Math.round(config.vatRate * 100),
+                  })}
+            </Text>
+            {/*
+              The selector appears only where there is a choice to make. A
+              single-currency store - which is most of them - keeps the plain
+              label it had before, because a dropdown with one option is a
+              question with one answer.
+            */}
+            {(config.enabledCurrencies?.length ?? 0) > 1 ? (
+              <Select onValueChange={setCurrency} size="small" value={currency}>
+                <Select.Trigger
+                  aria-label={t("productCosts.widget.currencySelectLabel", "Cost currency")}
+                >
+                  <Select.Value />
+                </Select.Trigger>
+                <Select.Content>
+                  {config.enabledCurrencies?.map((code) => (
+                    <Select.Item key={code} value={code}>
+                      {code}
+                    </Select.Item>
+                  ))}
+                </Select.Content>
+              </Select>
+            ) : (
+              <Text className="text-ui-fg-subtle" size="small">
+                ·{" "}
+                {config.defaultCurrency ??
+                  t("productCosts.widget.currencyNotSet", "currency not set")}
+              </Text>
+            )}
+          </div>
         ) : null}
       </div>
       <Table>

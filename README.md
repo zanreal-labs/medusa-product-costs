@@ -133,6 +133,7 @@ npx medusa db:migrate
 | `vatRate`             | `number`  | none    | VAT rate as a fraction (`0.2` = 20%, `0` = none), used to gross up a net cost. **No default** - see below. |
 | `defaultCurrency`     | `string`  | none    | ISO-4217 currency recorded on a cost when the caller does not specify one. **No default** - see below. |
 | `skipVariantLinking`  | `boolean` | `false` | When `true`, skip SKU→`ProductVariant` resolution entirely. Every `CostPrice` is stored with `variant_id: null` and no module link is created. Use this when your products are custom domain entities that do not use Medusa's standard `ProductVariant` model. |
+| `enabledCurrencies`   | `string[]` | `[]`  | Extra currencies the admin offers a cost row for, beyond `defaultCurrency`. Not a whitelist - see "Costs in more than one currency". |
 
 ### No default VAT rate and no default currency
 
@@ -167,6 +168,26 @@ above.
 Both are per-store, not per-cost: every `CostPrice` row does still carry its own `currency`
 column, but the VAT rate used in a margin calculation is always the store-wide setting (or an
 explicit override passed to that one calculation) - it is not stored per row.
+
+### Costs in more than one currency
+
+A SKU is keyed by `(sku, currency)`, so the same article can carry a cost per currency - for a store
+buying from suppliers who invoice in EUR and in PLN, or selling in several currencies and wanting a
+margin in each. The rows are independent facts, not conversions of one another: **this plugin does
+no exchange-rate arithmetic and never will**. Nothing says the EUR row and the PLN row for one SKU
+have to agree at today's rate, because a real invoice does not care what today's rate is. If what
+you want is one cost converted into several currencies, that is an FX problem, and it belongs
+upstream of this plugin.
+
+Tick the extra currencies under **Settings > Product costs > Also record costs in**. That list drives
+which currencies the admin offers; it is not a whitelist, so a CSV import or an API caller naming a
+currency outside it still stores its cost - a real invoice in an unlisted currency is not a mistake
+for a setting to veto.
+
+Nothing changes for a single-currency store, which is most of them: one row per SKU, and every read
+that does not name a currency resolves to the store's default. Where a surface can only show one
+figure, it shows the default currency's and says how many others exist - the Catalog cost column
+renders `44.00 PLN +1` rather than picking silently.
 
 **These are defaults, not the final word.** An operator can override either one from **Settings >
 Product costs** in the admin, without touching `medusa-config.ts` or restarting the backend - see
@@ -407,11 +428,17 @@ currency" above for why that one is labelled rather than shown as a chosen setti
 {
   "vatRate": 0.2,
   "defaultCurrency": "EUR",
+  "enabledCurrencies": ["EUR", "PLN"],
   "vatRateOverridden": false,
   "defaultCurrencyOverridden": false,
-  "defaultCurrencySource": "plugin"
+  "defaultCurrencySource": "plugin",
+  "enabledCurrenciesOverridden": true
 }
 ```
+
+`enabledCurrencies` is the default currency followed by the configured extras, uppercased and
+deduplicated. `GET /admin/product-costs` takes an optional `?currency=EUR`; without it, a SKU costed
+in several currencies contributes one row per currency.
 
 ### `POST /admin/product-costs/config`
 

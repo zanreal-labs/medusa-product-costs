@@ -38,9 +38,13 @@ function parsePaginationParam(raw: string | undefined, fallback: number): Pagina
  * GET /admin/product-costs?q=&sku=&limit=&offset=
  *
  * Lists curated costs. `q` does a case-insensitive substring search on the
- * SKU; `sku` (repeatable, e.g. `?sku=A&sku=B`) filters to an exact set.
- * `limit` is capped at `MAX_LIMIT`; a negative `limit` or `offset` is
- * rejected rather than silently clamped to 0.
+ * SKU; `sku` (repeatable, e.g. `?sku=A&sku=B`) filters to an exact set;
+ * `currency` narrows to one currency. `limit` is capped at `MAX_LIMIT`; a
+ * negative `limit` or `offset` is rejected rather than silently clamped to 0.
+ *
+ * Without `currency`, a SKU costed in several currencies contributes one row
+ * per currency. That is deliberate: this endpoint reports what is stored, and
+ * the admin cards rely on getting every row to render a line per currency.
  */
 export async function GET(req: MedusaRequest, res: MedusaResponse): Promise<void> {
   const service: ProductCostsModuleService = req.scope.resolve(PRODUCT_COSTS_MODULE);
@@ -66,7 +70,16 @@ export async function GET(req: MedusaRequest, res: MedusaResponse): Promise<void
       : [String(query.sku)])
     : undefined;
 
-  const { costs, count } = await service.listCosts({ q, sku }, { limit, offset });
+  let currency: string | undefined;
+  if (typeof query.currency === "string" && query.currency.trim()) {
+    currency = query.currency.trim().toUpperCase();
+    if (!CURRENCY_CODE_RE.test(currency)) {
+      res.status(400).json({ message: 'currency must be a 3-letter ISO-4217 code, e.g. "PLN"' });
+      return;
+    }
+  }
+
+  const { costs, count } = await service.listCosts({ currency, q, sku }, { limit, offset });
 
   res.json({ cost_prices: costs, count, limit, offset });
 }

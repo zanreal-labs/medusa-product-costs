@@ -2,6 +2,7 @@ import { defineRouteConfig } from "@medusajs/admin-sdk";
 import {
   Alert,
   Button,
+  Checkbox,
   Container,
   Heading,
   Input,
@@ -44,6 +45,14 @@ interface ConfigResponse {
    * to degrades to the previous behaviour instead of rendering `undefined`.
    */
   defaultCurrencySource?: "settings" | "plugin" | "store" | null;
+  /**
+   * Every currency this store records costs in, default first. Optional so an
+   * admin bundle newer than the backend it talks to degrades to the
+   * single-currency layout instead of rendering an empty list.
+   */
+  enabledCurrencies?: string[];
+  /** Whether the currency list above was saved here rather than coming from the plugin's options. */
+  enabledCurrenciesOverridden?: boolean;
 }
 
 /**
@@ -131,6 +140,8 @@ const ProductCostsSettingsPage = () => {
   const [config, setConfig] = useState<ConfigResponse | null>(null);
   const [vatRateInput, setVatRateInput] = useState("");
   const [currencyInput, setCurrencyInput] = useState("");
+  /** The extra currencies, i.e. `enabledCurrencies` minus the default one, which is implicit. */
+  const [extraCurrencies, setExtraCurrencies] = useState<string[]>([]);
   const [savingConfig, setSavingConfig] = useState(false);
   const [resettingConfig, setResettingConfig] = useState(false);
 
@@ -147,6 +158,13 @@ const ProductCostsSettingsPage = () => {
     // inventing the very setting it is asking the operator to choose.
     setVatRateInput(res.vatRate === null ? "" : formatVatPercent(res.vatRate));
     setCurrencyInput(res.defaultCurrency ?? "");
+    // The default currency is always first in the resolved list and is not an
+    // "extra": it has its own field above, and showing it as a tickable
+    // option would invite an operator to untick the one currency that cannot
+    // be removed.
+    setExtraCurrencies(
+      (res.enabledCurrencies ?? []).filter((code) => code !== (res.defaultCurrency ?? "")),
+    );
   };
 
   // Runs once on mount - `applyConfig` is stable across renders (it only
@@ -168,6 +186,16 @@ const ProductCostsSettingsPage = () => {
     return [currencyInput, ...COMMON_CURRENCIES];
   }, [currencyInput]);
 
+  /**
+   * Which currencies the tick list offers: the curated common ones, plus any
+   * already-saved extra that is not among them, minus the default currency
+   * (which is the field above, not an extra).
+   */
+  const extraCurrencyOptions = useMemo(() => {
+    const options = [...new Set([...extraCurrencies, ...COMMON_CURRENCIES])];
+    return options.filter((code) => code !== currencyInput.trim().toUpperCase());
+  }, [extraCurrencies, currencyInput]);
+
   const saveConfig = async () => {
     const vatRate = parseVatPercent(vatRateInput);
     if (vatRate === undefined) {
@@ -182,7 +210,11 @@ const ProductCostsSettingsPage = () => {
     setSavingConfig(true);
     try {
       const res = await sdk.client.fetch<ConfigResponse>("/admin/product-costs/config", {
-        body: { default_currency: currency, vat_rate: vatRate },
+        body: {
+          default_currency: currency,
+          enabled_currencies: extraCurrencies,
+          vat_rate: vatRate,
+        },
         method: "POST",
       });
       applyConfig(res);
@@ -207,7 +239,7 @@ const ProductCostsSettingsPage = () => {
     setResettingConfig(true);
     try {
       const res = await sdk.client.fetch<ConfigResponse>("/admin/product-costs/config", {
-        body: { default_currency: null, vat_rate: null },
+        body: { default_currency: null, enabled_currencies: null, vat_rate: null },
         method: "POST",
       });
       applyConfig(res);
@@ -228,7 +260,9 @@ const ProductCostsSettingsPage = () => {
     }
   };
 
-  const hasOverride = Boolean(config?.vatRateOverridden || config?.defaultCurrencyOverridden);
+  const hasOverride = Boolean(
+    config?.vatRateOverridden || config?.defaultCurrencyOverridden || config?.enabledCurrenciesOverridden,
+  );
 
   const onCsvFile = async (file: File) => {
     setCsvText(await file.text());
@@ -425,6 +459,34 @@ const ProductCostsSettingsPage = () => {
                   )}
                 </Text>
               ) : null}
+            </div>
+            <div className="flex flex-col gap-y-1 md:col-span-2">
+              <Label size="small">
+                {t("productCosts.settings.extraCurrenciesLabel", "Also record costs in")}
+              </Label>
+              <Text className="text-ui-fg-subtle" size="small">
+                {t(
+                  "productCosts.settings.extraCurrenciesHint",
+                  "For stores buying the same article in more than one currency. Each ticked currency gets its own cost per SKU, entered independently - this plugin never converts one into another. Leave empty if every supplier invoices you in the default currency.",
+                )}
+              </Text>
+              <div className="mt-1 flex flex-wrap gap-x-4 gap-y-2">
+                {extraCurrencyOptions.map((code) => (
+                  <label className="flex items-center gap-x-2" key={code}>
+                    <Checkbox
+                      checked={extraCurrencies.includes(code)}
+                      onCheckedChange={(checked) =>
+                        setExtraCurrencies((previous) =>
+                          checked === true
+                            ? [...previous, code]
+                            : previous.filter((entry) => entry !== code),
+                        )
+                      }
+                    />
+                    <Text size="small">{code}</Text>
+                  </label>
+                ))}
+              </div>
             </div>
           </div>
         ) : (
