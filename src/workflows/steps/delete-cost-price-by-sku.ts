@@ -30,9 +30,15 @@ export interface DeleteCostPriceBySkuInput {
  * )
  * ```
  *
- * Compensation restores the deleted record if a later step in the workflow
- * fails and triggers a rollback - the `CostPrice` comes back, but the
- * `CostPriceHistory` append-only trail for that record is not restored.
+ * Compensation restores the deleted record, under its original id, if a later
+ * step in the workflow fails and triggers a rollback. The `CostPriceHistory`
+ * trail was never touched (it is append-only), so there is nothing to restore
+ * there.
+ *
+ * Meant for stores running with `skipVariantLinking: true`. This step does not
+ * dismiss the `CostPrice <-> ProductVariant` module link, so on a store that
+ * does link variants, deleting a linked cost leaves that link behind; compose
+ * `dismissRemoteLinkStep` before it in that case.
  */
 export const deleteCostPriceBySkuStep = createStep(
   "delete-cost-price-by-sku",
@@ -57,7 +63,12 @@ export const deleteCostPriceBySkuStep = createStep(
 
     const service: ProductCostsModuleService = container.resolve(PRODUCT_COSTS_MODULE);
 
+    // Restored under its original id. Without it the row comes back as a
+    // new record, and anything that referenced the old id - the
+    // CostPrice <-> ProductVariant module link above all - is left pointing
+    // at a row that will never exist again.
     await service.createCostPrices([{
+      id: deleted.id,
       sku: deleted.sku,
       unit_cost_net: Number(deleted.unit_cost_net),
       currency: deleted.currency,
