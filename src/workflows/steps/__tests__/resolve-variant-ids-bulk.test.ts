@@ -1,5 +1,6 @@
 import type { StepExecutionContext } from "@medusajs/framework/workflows-sdk";
 import { describe, expect, it, vi } from "vitest";
+import { PRODUCT_COSTS_MODULE } from "../../../modules/product-costs";
 import { resolveVariantIdsBulk } from "../resolve-variant-ids-bulk";
 
 /**
@@ -10,12 +11,24 @@ import { resolveVariantIdsBulk } from "../resolve-variant-ids-bulk";
  * module. The cast to `Pick<StepExecutionContext, "container">` stands in
  * for the real `MedusaContainer` - the function under test only ever calls
  * `.resolve` on it.
+ *
+ * The fake resolves per registration key rather than returning one object for
+ * every key: the function under test reads `skipVariantLinking` off the
+ * product-costs module and the SKUs off the product module, so a container
+ * that answers both lookups with the same stub cannot tell the two paths
+ * apart. `productCosts: undefined` stands for a container where the module is
+ * not registered at all - the `allowUnregistered` case.
  */
 function containerWith(
   listProductVariants: ReturnType<typeof vi.fn>,
+  productCosts: { moduleOptions?: { skipVariantLinking?: boolean } } | undefined = {
+    moduleOptions: { skipVariantLinking: false },
+  },
 ): Pick<StepExecutionContext, "container"> {
   return {
-    container: { resolve: () => ({ listProductVariants }) },
+    container: {
+      resolve: (key: string) => (key === PRODUCT_COSTS_MODULE ? productCosts : { listProductVariants }),
+    },
   } as unknown as Pick<StepExecutionContext, "container">;
 }
 
@@ -83,5 +96,30 @@ describe("resolveVariantIdsBulk", () => {
     );
 
     expect(result).toEqual({ bySku: { "SKU-1": "variant_2" }, duplicates: {} });
+  });
+
+  it("returns empty results without querying the Product module when skipVariantLinking is set", async () => {
+    const listProductVariants = vi.fn();
+
+    const result = await resolveVariantIdsBulk(
+      { skus: ["FLIGHT-LH1234", "HOTEL-42"] },
+      containerWith(listProductVariants, { moduleOptions: { skipVariantLinking: true } }),
+    );
+
+    // A CSV import into a store with custom entities still has to finish: the
+    // bulk link sync runs, resolves nothing, and writes no links.
+    expect(result).toEqual({ bySku: {}, duplicates: {} });
+    expect(listProductVariants).not.toHaveBeenCalled();
+  });
+
+  it("falls back to variant resolution when the product-costs module is not registered", async () => {
+    const listProductVariants = vi.fn().mockResolvedValue([{ id: "variant_1", sku: "SKU-1" }]);
+
+    const result = await resolveVariantIdsBulk(
+      { skus: ["SKU-1"] },
+      containerWith(listProductVariants, undefined),
+    );
+
+    expect(result).toEqual({ bySku: { "SKU-1": "variant_1" }, duplicates: {} });
   });
 });
