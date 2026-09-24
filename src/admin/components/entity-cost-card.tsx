@@ -189,7 +189,7 @@ const EntityCostCard = ({ entityId, prices }: EntityCostCardProps) => {
   const handleSave = async () => {
     const parsed = parseInputCost(inputValue);
     if (!parsed) {
-      toast.error(t("productCosts.entityCard.invalidCostError"));
+      toast.error(t("productCosts.entityCard.invalidCostError", "Enter a valid positive cost"));
       return;
     }
     setSaving(true);
@@ -198,12 +198,16 @@ const EntityCostCard = ({ entityId, prices }: EntityCostCardProps) => {
         method: "POST",
         body: JSON.stringify({ sku: entityId, unit_cost_net: parsed, source: "manual" }),
       });
-      toast.success(t("productCosts.entityCard.savedCost"));
+      toast.success(t("productCosts.entityCard.savedCost", "Cost saved"));
       setEditing(false);
       setInputValue("");
       await load();
     } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : t("productCosts.entityCard.saveError"));
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : t("productCosts.entityCard.saveError", "Failed to save cost"),
+      );
     } finally {
       setSaving(false);
     }
@@ -220,10 +224,10 @@ const EntityCostCard = ({ entityId, prices }: EntityCostCardProps) => {
 
   const vatLabel =
     vatRate !== null
-      ? interpolate(t("productCosts.entityCard.vatPercent"), {
+      ? interpolate(t("productCosts.entityCard.vatPercent", "VAT {{percent}}%"), {
           percent: Math.round(vatRate * 100),
         })
-      : t("productCosts.entityCard.vatNotSet");
+      : t("productCosts.entityCard.vatNotSet", "VAT not set");
 
   const marginColor =
     marginPct === undefined ? "grey" : marginPct >= 0 ? "green" : "red";
@@ -234,7 +238,7 @@ const EntityCostCard = ({ entityId, prices }: EntityCostCardProps) => {
         <div className="flex items-center justify-between px-6 py-4">
           <div className="flex flex-col gap-y-0.5">
             <Heading level="h2" className="text-ui-fg-base">
-              {t("productCosts.entityCard.heading")}
+              {t("productCosts.entityCard.heading", "Cost")}
             </Heading>
             {vatRate !== null && (
               <Text className="text-ui-fg-subtle text-xs">{vatLabel} · {currency}</Text>
@@ -243,12 +247,12 @@ const EntityCostCard = ({ entityId, prices }: EntityCostCardProps) => {
           {!isLoading && !editing && (
             <div className="flex items-center gap-x-2">
               <Button variant="transparent" size="small" onClick={handleOpenHistory}>
-                {t("productCosts.entityCard.historyButton")}
+                {t("productCosts.entityCard.historyButton", "History")}
               </Button>
               <Button variant="secondary" size="small" onClick={handleEdit}>
                 {cost
-                  ? t("productCosts.entityCard.editButton")
-                  : t("productCosts.entityCard.setCostButton")}
+                  ? t("productCosts.entityCard.editButton", "Edit")
+                  : t("productCosts.entityCard.setCostButton", "Set cost")}
               </Button>
             </div>
           )}
@@ -256,20 +260,20 @@ const EntityCostCard = ({ entityId, prices }: EntityCostCardProps) => {
 
         {isLoading && (
           <div className="px-6 py-4">
-            <Text className="text-ui-fg-subtle text-sm">{t("productCosts.common.loading")}</Text>
+            <Text className="text-ui-fg-subtle text-sm">{t("productCosts.common.loading", "Loading...")}</Text>
           </div>
         )}
 
         {!isLoading && !editing && !cost && (
           <div className="px-6 py-4">
-            <Text className="text-ui-fg-subtle text-sm">{t("productCosts.entityCard.noCostSet")}</Text>
+            <Text className="text-ui-fg-subtle text-sm">{t("productCosts.entityCard.noCostSet", "No cost set")}</Text>
           </div>
         )}
 
         {!isLoading && !editing && cost && (
           <>
             <div className="flex items-center justify-between px-6 py-3">
-              <Text className="text-ui-fg-subtle text-sm">{t("productCosts.entityCard.netCost")}</Text>
+              <Text className="text-ui-fg-subtle text-sm">{t("productCosts.entityCard.netCost", "Net cost")}</Text>
               <div className="flex items-center gap-x-2">
                 <Text className="text-ui-fg-base text-sm font-medium">
                   {cost.unit_cost_net.toFixed(2)}
@@ -282,7 +286,7 @@ const EntityCostCard = ({ entityId, prices }: EntityCostCardProps) => {
 
             {grossCost !== undefined && (
               <div className="flex items-center justify-between px-6 py-3">
-                <Text className="text-ui-fg-subtle text-sm">{t("productCosts.entityCard.grossCost")}</Text>
+                <Text className="text-ui-fg-subtle text-sm">{t("productCosts.entityCard.grossCost", "Gross (break-even)")}</Text>
                 <div className="flex items-center gap-x-2">
                   <Text className="text-ui-fg-base text-sm font-medium">
                     {grossCost.toFixed(2)}
@@ -296,7 +300,7 @@ const EntityCostCard = ({ entityId, prices }: EntityCostCardProps) => {
 
             {srp !== undefined && (
               <div className="flex items-center justify-between px-6 py-3">
-                <Text className="text-ui-fg-subtle text-sm">{t("productCosts.entityCard.sellPrice")}</Text>
+                <Text className="text-ui-fg-subtle text-sm">{t("productCosts.entityCard.sellPrice", "Sell price")}</Text>
                 <div className="flex items-center gap-x-2">
                   <Text className="text-ui-fg-base text-sm font-medium">
                     {srp.toFixed(2)}
@@ -310,7 +314,7 @@ const EntityCostCard = ({ entityId, prices }: EntityCostCardProps) => {
 
             {marginPct !== undefined && netIncome !== undefined && (
               <div className="flex items-center justify-between px-6 py-3">
-                <Text className="text-ui-fg-subtle text-sm">{t("productCosts.entityCard.margin")}</Text>
+                <Text className="text-ui-fg-subtle text-sm">{t("productCosts.entityCard.margin", "Margin")}</Text>
                 <Badge size="2xsmall" color={marginColor}>
                   {marginPct.toFixed(1)}% ({netIncome.toFixed(2)} {currency})
                 </Badge>
@@ -320,7 +324,7 @@ const EntityCostCard = ({ entityId, prices }: EntityCostCardProps) => {
             {grossCost === undefined && vatRate === null && (
               <div className="px-6 py-3">
                 <Text className="text-ui-fg-muted text-xs">
-                  {t("productCosts.entityCard.noVatHint")}
+                  {t("productCosts.entityCard.noVatHint", "Configure a VAT rate in product costs settings to see gross cost and margin.")}
                 </Text>
               </div>
             )}
@@ -328,13 +332,13 @@ const EntityCostCard = ({ entityId, prices }: EntityCostCardProps) => {
             {srp === undefined && grossCost !== undefined && (
               <div className="px-6 py-3">
                 <Text className="text-ui-fg-muted text-xs">
-                  {interpolate(t("productCosts.entityCard.noSellPriceHint"), { currency })}
+                  {interpolate(t("productCosts.entityCard.noSellPriceHint", "Set a sell price in {{currency}} to see margin."), { currency })}
                 </Text>
               </div>
             )}
 
             <div className="flex items-center justify-between px-6 py-3">
-              <Text className="text-ui-fg-subtle text-sm">{t("productCosts.entityCard.lastUpdated")}</Text>
+              <Text className="text-ui-fg-subtle text-sm">{t("productCosts.entityCard.lastUpdated", "Last updated")}</Text>
               <Text className="text-ui-fg-base text-sm">
                 {new Date(cost.updated_at).toLocaleDateString(undefined, {
                   day: "numeric",
@@ -360,7 +364,7 @@ const EntityCostCard = ({ entityId, prices }: EntityCostCardProps) => {
                 />
               </div>
               <Button size="small" onClick={handleSave} isLoading={saving}>
-                {t("productCosts.entityCard.save")}
+                {t("productCosts.entityCard.save", "Save")}
               </Button>
               <Button
                 variant="secondary"
@@ -368,12 +372,12 @@ const EntityCostCard = ({ entityId, prices }: EntityCostCardProps) => {
                 onClick={handleCancel}
                 disabled={saving}
               >
-                {t("productCosts.entityCard.cancel")}
+                {t("productCosts.entityCard.cancel", "Cancel")}
               </Button>
             </div>
             {previewGross !== undefined && (
               <Text className="text-ui-fg-subtle text-xs">
-                {interpolate(t("productCosts.entityCard.grossPreview"), {
+                {interpolate(t("productCosts.entityCard.grossPreview", "Gross (break-even): {{amount}} {{currency}}"), {
                   amount: previewGross.toFixed(2),
                   currency,
                 })}
@@ -387,28 +391,28 @@ const EntityCostCard = ({ entityId, prices }: EntityCostCardProps) => {
         <Drawer.Content>
           <Drawer.Header>
             <Drawer.Title>
-              {interpolate(t("productCosts.entityCard.historyTitle"), { entityId })}
+              {interpolate(t("productCosts.entityCard.historyTitle", "Cost history for {{entityId}}"), { entityId })}
             </Drawer.Title>
           </Drawer.Header>
           <Drawer.Body className="overflow-y-auto p-0">
             {historyLoading && (
               <div className="px-6 py-4">
-                <Text className="text-ui-fg-subtle text-sm">{t("productCosts.common.loading")}</Text>
+                <Text className="text-ui-fg-subtle text-sm">{t("productCosts.common.loading", "Loading...")}</Text>
               </div>
             )}
             {!historyLoading && history.length === 0 && (
               <div className="px-6 py-4">
-                <Text className="text-ui-fg-subtle text-sm">{t("productCosts.entityCard.noHistory")}</Text>
+                <Text className="text-ui-fg-subtle text-sm">{t("productCosts.entityCard.noHistory", "No history yet")}</Text>
               </div>
             )}
             {!historyLoading && history.length > 0 && (
               <Table>
                 <Table.Header>
                   <Table.Row>
-                    <Table.HeaderCell>{t("productCosts.entityCard.historyColumns.cost")}</Table.HeaderCell>
-                    <Table.HeaderCell>{t("productCosts.entityCard.historyColumns.source")}</Table.HeaderCell>
-                    <Table.HeaderCell>{t("productCosts.entityCard.historyColumns.changedBy")}</Table.HeaderCell>
-                    <Table.HeaderCell>{t("productCosts.entityCard.historyColumns.changedAt")}</Table.HeaderCell>
+                    <Table.HeaderCell>{t("productCosts.entityCard.historyColumns.cost", "Cost")}</Table.HeaderCell>
+                    <Table.HeaderCell>{t("productCosts.entityCard.historyColumns.source", "Source")}</Table.HeaderCell>
+                    <Table.HeaderCell>{t("productCosts.entityCard.historyColumns.changedBy", "Changed by")}</Table.HeaderCell>
+                    <Table.HeaderCell>{t("productCosts.entityCard.historyColumns.changedAt", "Changed at")}</Table.HeaderCell>
                   </Table.Row>
                 </Table.Header>
                 <Table.Body>
