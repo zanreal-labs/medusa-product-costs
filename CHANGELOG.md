@@ -9,13 +9,7 @@ registry, not merge dates on `main` - see [Releasing](./README.md#releasing).
 
 ## [Unreleased]
 
-### Changed
-
-- **Built and tested against Medusa 2.21.1** (was 2.18.0), with the admin toolchain Medusa 2.19
-  requires: Vite 7 and, where used, React Router 7. `react-i18next` and `i18next` deliberately stay
-  on the majors the Medusa dashboard itself ships (13 and 23): admin extensions share the host's
-  i18n instance, and a second major would give them one of their own. Install alongside Medusa
-  2.21.1; Node ^20.19 or ^22.12 is required from Medusa 2.19 on.
+## [0.3.0] - 2026-09-25
 
 ### Added
 
@@ -25,15 +19,30 @@ registry, not merge dates on `main` - see [Releasing](./README.md#releasing).
   independent facts: this plugin still does no exchange-rate arithmetic. Pick the extra currencies
   under Settings > Product costs; `GET /admin/product-costs` gains an optional `?currency=`, and
   `GET /admin/product-costs/config` reports `enabledCurrencies`.
+- **The store's default currency as a last fallback.** A store that never named a currency in this
+  plugin can save costs: after an explicit `currency`, the Settings override and the
+  `defaultCurrency` option, the currency marked default in Medusa's Store settings is used. The
+  settings screen says when the currency came from there, and `GET /admin/product-costs/config`
+  reports it as `defaultCurrencySource: "store"`.
 - **The store's own currencies are offered in Settings.** Settings > Product costs lists the
   currencies Medusa's Store settings support first, both in the default-currency picker and in the
   "Also record costs in" list, and names any of them not yet ticked. They are suggestions, never
   enabled automatically: a store sells in those currencies, and costs are recorded in the currencies
   suppliers invoice in, so a cost row per selling currency would be noise. `GET` and `POST
   /admin/product-costs/config` report them as `storeCurrencies`.
+- **`skipVariantLinking` option** for stores costing custom entities instead of Medusa's
+  `ProductVariant`: costs are stored with `variant_id: null` and no variant link is created or
+  synced. **`EntityCostCard`** is exported for showing a cost and margin on such an entity's admin
+  page.
+- **Arabic, Spanish and Turkish** admin translations, alongside English and Polish.
 
 ### Changed
 
+- **Built and tested against Medusa 2.21.1** (was 2.18.0), with the admin toolchain Medusa 2.19
+  requires: Vite 7 and, where used, React Router 7. `react-i18next` and `i18next` deliberately stay
+  on the majors the Medusa dashboard itself ships (13 and 23): admin extensions share the host's
+  i18n instance, and a second major would give them one of their own. Install alongside Medusa
+  2.21.1; Node ^20.19 or ^22.12 is required from Medusa 2.19 on.
 - `getCostsBySkus`/`getCostBySku` take an optional currency and default to the store's, so a caller
   that wants one number still gets a deterministic one rather than whichever row the database
   returned first. `getAllCostsBySku` is the new multi-currency read. `computeEconomics` takes an
@@ -41,6 +50,11 @@ registry, not merge dates on `main` - see [Releasing](./README.md#releasing).
 - The Catalog cost column shows the default currency's cost and appends `+N` when the SKU is costed
   in others, rather than silently rendering one of several.
 - Variant-link resync now re-points every currency's row for a SKU, not just the default one's.
+
+### Fixed
+
+- `syncCostPriceVariantLinksWorkflow` carries an explicit type, so building the plugin inside a pnpm
+  workspace no longer fails declaration emit with TS2742.
 
 ### Migration
 
@@ -88,6 +102,7 @@ First public release. MIT, published from CI with npm provenance.
   per-product cost-coverage column, and the product page as the primary costing surface.
 - Admin UI in English and Polish.
 
-[Unreleased]: https://github.com/zanreal-labs/medusa-product-costs/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/zanreal-labs/medusa-product-costs/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/zanreal-labs/medusa-product-costs/releases/tag/v0.3.0
 [0.2.0]: https://github.com/zanreal-labs/medusa-product-costs/releases/tag/v0.2.0
 [0.1.0]: https://github.com/zanreal-labs/medusa-product-costs/releases/tag/v0.1.0
