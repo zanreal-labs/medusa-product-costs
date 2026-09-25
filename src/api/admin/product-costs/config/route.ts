@@ -1,6 +1,6 @@
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http";
 import { MedusaError } from "@medusajs/framework/utils";
-import { resolveEffectiveCurrency } from "../../../../lib/store-currency";
+import { resolveEffectiveCurrency, resolveStoreCurrencies } from "../../../../lib/store-currency";
 import { PRODUCT_COSTS_MODULE } from "../../../../modules/product-costs";
 import type ProductCostsModuleService from "../../../../modules/product-costs/service";
 import type { ProductCostsSettingsPatch } from "../../../../modules/product-costs/types";
@@ -39,18 +39,26 @@ const MAX_ENABLED_CURRENCIES = 25;
  * here, the plugin option, or Medusa's own Store settings. The last one is a
  * fallback nobody typed into this plugin, so the UI names it rather than
  * presenting it as a chosen setting; see `resolveEffectiveCurrency`.
+ *
+ * `storeCurrencies` lists every currency Medusa's Store settings support.
+ * It is a suggestion for the Settings page's currency list, never a value
+ * the plugin computes with: those are the currencies the shop sells in, and
+ * enabling all of them by default would add a cost row per SKU for every
+ * selling currency, whether or not any supplier invoices in it.
  */
 export async function GET(req: MedusaRequest, res: MedusaResponse): Promise<void> {
   const service: ProductCostsModuleService = req.scope.resolve(PRODUCT_COSTS_MODULE);
   const resolved = await service.getResolvedOptions();
   const settings = await service.getSettings();
   const currency = await resolveEffectiveCurrency(req.scope);
+  const store = await resolveStoreCurrencies(req.scope);
   res.json({
     defaultCurrency: currency.currency,
     defaultCurrencyOverridden: settings.default_currency !== null,
     defaultCurrencySource: currency.source,
     enabledCurrencies: normalizeEnabledCurrencies(currency.currency, resolved.enabledCurrencies),
     enabledCurrenciesOverridden: settings.enabled_currencies !== null,
+    storeCurrencies: store.supported,
     vatRate: resolved.vatRate,
     vatRateOverridden: settings.vat_rate !== null,
   });
@@ -184,6 +192,7 @@ export async function POST(req: MedusaRequest, res: MedusaResponse): Promise<voi
   // the service uses, headed by that effective currency, so the list here
   // cannot drift from the one every other caller sees.
   const currency = await resolveEffectiveCurrency(req.scope);
+  const store = await resolveStoreCurrencies(req.scope);
   res.json({
     defaultCurrency: currency.currency,
     defaultCurrencyOverridden: settings.default_currency !== null,
@@ -193,6 +202,7 @@ export async function POST(req: MedusaRequest, res: MedusaResponse): Promise<voi
       settings.enabled_currencies ?? service.moduleOptions.enabledCurrencies,
     ),
     enabledCurrenciesOverridden: settings.enabled_currencies !== null,
+    storeCurrencies: store.supported,
     vatRate: settings.vat_rate ?? service.moduleOptions.vatRate,
     vatRateOverridden: settings.vat_rate !== null,
   });

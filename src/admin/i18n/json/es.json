@@ -73,7 +73,8 @@
       "import": "Importar",
       "uploadInstead": "Subir un archivo en su lugar",
       "importErrorsHeading": "{{count}} fila(s) no se pudieron importar:",
-      "importErrorLinePrefix": "Línea"
+      "importErrorLinePrefix": "Línea",
+      "storeCurrenciesHint": "Tu tienda también vende en {{currencies}}. Marca las monedas en las que te facturan tus proveedores."
     },
     "entityCard": {
       "heading": "Coste",
