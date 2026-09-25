@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { resolveEffectiveCurrency, resolveStoreDefaultCurrency } from "../store-currency";
+import {
+  resolveEffectiveCurrency,
+  resolveStoreCurrencies,
+  resolveStoreDefaultCurrency,
+} from "../store-currency";
 
 /**
  * A container fake that answers per registration key, the way the real one
@@ -66,6 +70,39 @@ describe("resolveStoreDefaultCurrency", () => {
     // A fallback that can take down the settings screen is worse than no
     // fallback: this path is a read on a page that must keep rendering.
     expect(await resolveStoreDefaultCurrency(containerWith({ query }))).toBeNull();
+  });
+});
+
+describe("resolveStoreCurrencies", () => {
+  it("lists every supported currency, uppercased and deduplicated, in the store's order", async () => {
+    const query = storeQuery([
+      { currency_code: "pln", is_default: true },
+      { currency_code: "eur", is_default: false },
+      { currency_code: " EUR ", is_default: false },
+      { currency_code: null, is_default: false },
+      { currency_code: "usd", is_default: false },
+    ]);
+
+    expect(await resolveStoreCurrencies(containerWith({ query }))).toEqual({
+      defaultCurrency: "PLN",
+      supported: ["PLN", "EUR", "USD"],
+    });
+  });
+
+  it("returns an empty answer instead of throwing when the store lookup fails", async () => {
+    const query = { graph: vi.fn().mockRejectedValue(new Error("connection reset")) };
+
+    expect(await resolveStoreCurrencies(containerWith({ query }))).toEqual({
+      defaultCurrency: null,
+      supported: [],
+    });
+  });
+
+  it("returns an empty answer when Query is not registered in the container", async () => {
+    expect(await resolveStoreCurrencies(containerWith({}))).toEqual({
+      defaultCurrency: null,
+      supported: [],
+    });
   });
 });
 

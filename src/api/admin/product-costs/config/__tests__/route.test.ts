@@ -103,6 +103,7 @@ describe("GET /admin/product-costs/config", () => {
       defaultCurrencySource: "plugin",
       enabledCurrencies: ["PLN"],
       enabledCurrenciesOverridden: false,
+      storeCurrencies: [],
       vatRate: 0.23,
       vatRateOverridden: false,
     });
@@ -124,6 +125,7 @@ describe("GET /admin/product-costs/config", () => {
       defaultCurrencySource: "settings",
       enabledCurrencies: ["EUR", "USD"],
       enabledCurrenciesOverridden: true,
+      storeCurrencies: [],
       vatRate: 0.19,
       vatRateOverridden: true,
     });
@@ -150,23 +152,31 @@ describe("GET /admin/product-costs/config", () => {
       // leave the one currency this store can actually save in unreachable.
       enabledCurrencies: ["GBP"],
       enabledCurrenciesOverridden: false,
+      // Offered to the settings page as suggestions only - see the next test.
+      storeCurrencies: ["USD", "GBP"],
       vatRate: 0.23,
       vatRateOverridden: false,
     });
   });
 
-  it("does not consult the store when the plugin already names a currency", async () => {
+  it("keeps the plugin's currency and only suggests the store's currencies", async () => {
     const service = createService();
-    const scope = createScope(service, "GBP");
-    const query = scope.resolve("query") as { graph: ReturnType<typeof vi.fn> };
-    const req = { scope } as unknown as MedusaRequest;
+    const req = { scope: createScope(service, "GBP") } as unknown as MedusaRequest;
     const res = createMockResponse();
 
     await GET(req, res as never);
 
-    expect(query.graph).not.toHaveBeenCalled();
+    // The store is read for the suggestion list, but its default does not
+    // displace a currency the plugin was configured with, and none of its
+    // currencies are enabled on the operator's behalf: they are what the
+    // shop sells in, not what its suppliers invoice in.
     expect(res.json).toHaveBeenCalledWith(
-      expect.objectContaining({ defaultCurrency: "PLN", defaultCurrencySource: "plugin" }),
+      expect.objectContaining({
+        defaultCurrency: "PLN",
+        defaultCurrencySource: "plugin",
+        enabledCurrencies: ["PLN"],
+        storeCurrencies: ["USD", "GBP"],
+      }),
     );
   });
 
@@ -188,6 +198,7 @@ describe("GET /admin/product-costs/config", () => {
       defaultCurrencySource: null,
       enabledCurrencies: [],
       enabledCurrenciesOverridden: false,
+      storeCurrencies: [],
       vatRate: null,
       vatRateOverridden: false,
     });
@@ -226,6 +237,7 @@ describe("POST /admin/product-costs/config", () => {
       defaultCurrencySource: "plugin",
       enabledCurrencies: ["PLN"],
       enabledCurrenciesOverridden: false,
+      storeCurrencies: [],
       vatRate: 0.19,
       vatRateOverridden: true,
     });

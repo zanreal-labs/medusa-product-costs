@@ -73,7 +73,8 @@
       "import": "استيراد",
       "uploadInstead": "ارفع ملفًا بدلاً من ذلك",
       "importErrorsHeading": "تعذر استيراد {{count}} سطر:",
-      "importErrorLinePrefix": "السطر"
+      "importErrorLinePrefix": "السطر",
+      "storeCurrenciesHint": "يبيع متجرك أيضًا بـ {{currencies}}. حدّد العملات التي يصدر بها مورّدوك فواتيرهم."
     },
     "entityCard": {
       "heading": "التكلفة",

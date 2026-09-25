@@ -73,7 +73,8 @@
       "import": "İçe aktar",
       "uploadInstead": "Bunun yerine dosya yükle",
       "importErrorsHeading": "{{count}} satır içe aktarılamadı:",
-      "importErrorLinePrefix": "Satır"
+      "importErrorLinePrefix": "Satır",
+      "storeCurrenciesHint": "Mağazanız ayrıca {{currencies}} ile satış yapıyor. Tedarikçilerinizin size fatura kestiği para birimlerini işaretleyin."
     },
     "entityCard": {
       "heading": "Maliyet",

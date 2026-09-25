@@ -25,6 +25,12 @@ registry, not merge dates on `main` - see [Releasing](./README.md#releasing).
   independent facts: this plugin still does no exchange-rate arithmetic. Pick the extra currencies
   under Settings > Product costs; `GET /admin/product-costs` gains an optional `?currency=`, and
   `GET /admin/product-costs/config` reports `enabledCurrencies`.
+- **The store's own currencies are offered in Settings.** Settings > Product costs lists the
+  currencies Medusa's Store settings support first, both in the default-currency picker and in the
+  "Also record costs in" list, and names any of them not yet ticked. They are suggestions, never
+  enabled automatically: a store sells in those currencies, and costs are recorded in the currencies
+  suppliers invoice in, so a cost row per selling currency would be noise. `GET` and `POST
+  /admin/product-costs/config` report them as `storeCurrencies`.
 
 ### Changed
 

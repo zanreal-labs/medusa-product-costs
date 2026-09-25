@@ -77,7 +77,8 @@
       "importErrorsHeading": "{{count}} row(s) could not be imported:",
       "importErrorLinePrefix": "Line",
       "extraCurrenciesLabel": "Also record costs in",
-      "extraCurrenciesHint": "For stores buying the same article in more than one currency. Each ticked currency gets its own cost per SKU, entered independently - this plugin never converts one into another. Leave empty if every supplier invoices you in the default currency."
+      "extraCurrenciesHint": "For stores buying the same article in more than one currency. Each ticked currency gets its own cost per SKU, entered independently - this plugin never converts one into another. Leave empty if every supplier invoices you in the default currency.",
+      "storeCurrenciesHint": "Your store also sells in {{currencies}}. Tick the ones your suppliers invoice you in."
     },
     "entityCard": {
       "heading": "Cost",
