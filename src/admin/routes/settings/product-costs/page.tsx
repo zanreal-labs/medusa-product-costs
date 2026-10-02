@@ -53,6 +53,13 @@ interface ConfigResponse {
   enabledCurrencies?: string[];
   /** Whether the currency list above was saved here rather than coming from the plugin's options. */
   enabledCurrenciesOverridden?: boolean;
+  /**
+   * Every currency Medusa's Store settings support. Offered first in the
+   * tick list, never ticked on the operator's behalf: these are selling
+   * currencies, and costs are recorded in the currencies suppliers invoice in.
+   * Optional so an older backend without the field still renders.
+   */
+  storeCurrencies?: string[];
 }
 
 /**
@@ -176,25 +183,34 @@ const ProductCostsSettingsPage = () => {
       .catch(() => setConfig(null));
   }, []);
 
-  const currencyOptions = useMemo(() => {
-    if (!currencyInput || COMMON_CURRENCIES.includes(currencyInput)) {
-      return COMMON_CURRENCIES;
-    }
-    // The store's already-saved currency isn't in the curated list - add it
-    // so the Select shows the real value instead of falling back to a
-    // placeholder for a perfectly valid, already-persisted setting.
-    return [currencyInput, ...COMMON_CURRENCIES];
-  }, [currencyInput]);
+  const storeCurrencies = useMemo(() => config?.storeCurrencies ?? [], [config]);
+
+  // The saved value first when it is in neither list, so the Select shows the
+  // real value instead of a placeholder for a valid, already-persisted
+  // setting; then the store's own currencies, then the curated common ones.
+  const currencyOptions = useMemo(
+    () => [...new Set([...(currencyInput ? [currencyInput] : []), ...storeCurrencies, ...COMMON_CURRENCIES])],
+    [currencyInput, storeCurrencies],
+  );
 
   /**
-   * Which currencies the tick list offers: the curated common ones, plus any
-   * already-saved extra that is not among them, minus the default currency
-   * (which is the field above, not an extra).
+   * Which currencies the tick list offers: any already-saved extra, then the
+   * currencies the store sells in, then the curated common ones, minus the
+   * default currency (which is the field above, not an extra).
    */
   const extraCurrencyOptions = useMemo(() => {
-    const options = [...new Set([...extraCurrencies, ...COMMON_CURRENCIES])];
+    const options = [...new Set([...extraCurrencies, ...storeCurrencies, ...COMMON_CURRENCIES])];
     return options.filter((code) => code !== currencyInput.trim().toUpperCase());
-  }, [extraCurrencies, currencyInput]);
+  }, [extraCurrencies, storeCurrencies, currencyInput]);
+
+  /** Store currencies the operator has not ticked, named under the list as a prompt. */
+  const untickedStoreCurrencies = useMemo(
+    () =>
+      storeCurrencies.filter(
+        (code) => code !== currencyInput.trim().toUpperCase() && !extraCurrencies.includes(code),
+      ),
+    [storeCurrencies, currencyInput, extraCurrencies],
+  );
 
   const saveConfig = async () => {
     const vatRate = parseVatPercent(vatRateInput);
@@ -487,6 +503,20 @@ const ProductCostsSettingsPage = () => {
                   </label>
                 ))}
               </div>
+              {untickedStoreCurrencies.length > 0 ? (
+                // A prompt, not a default. The store selling in a currency
+                // says nothing about whether any supplier invoices in it, so
+                // these stay unticked until the operator says so.
+                <Text className="text-ui-fg-subtle mt-1" size="small">
+                  {interpolate(
+                    t(
+                      "productCosts.settings.storeCurrenciesHint",
+                      "Your store also sells in {{currencies}}. Tick the ones your suppliers invoice you in.",
+                    ),
+                    { currencies: untickedStoreCurrencies.join(", ") },
+                  )}
+                </Text>
+              ) : null}
             </div>
           </div>
         ) : (

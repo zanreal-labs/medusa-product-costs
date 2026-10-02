@@ -37,25 +37,34 @@ interface StoreQuery {
   graph: (config: { entity: string; fields: string[] }) => Promise<{ data?: StoreRow[] | null }>;
 }
 
+/** Every currency Medusa's Store settings list, and which one of them is marked default. */
+export interface StoreCurrencies {
+  /** The currency marked `is_default`, uppercased, or `null` when none is. */
+  defaultCurrency: string | null;
+  /** Every supported currency, uppercased and deduplicated, in the store's own order. */
+  supported: string[];
+}
+
+const NO_STORE_CURRENCIES: StoreCurrencies = { defaultCurrency: null, supported: [] };
+
 /**
- * The currency marked `is_default` in Medusa's Store settings, uppercased,
- * or `null` when there is no store, no default among its supported
- * currencies, or no Query registered in this container at all.
+ * The currencies Medusa's Store settings list, uppercased, or an empty answer
+ * when there is no store or no Query registered in this container at all.
  *
- * Never throws. This is a fallback consulted on read paths that must keep
- * working (the settings screen, a cost upsert); a store lookup that fails is
- * the same situation as a store that has not named a default currency, and
- * both end in the plugin saying the currency is unset rather than in a 500.
+ * Never throws. This is consulted on read paths that must keep working (the
+ * settings screen, a cost upsert); a store lookup that fails is the same
+ * situation as a store that lists no currencies, and both end in the plugin
+ * falling back to its own settings rather than in a 500.
  */
-export async function resolveStoreDefaultCurrency(
+export async function resolveStoreCurrencies(
   container: ResolvingContainer,
-): Promise<string | null> {
+): Promise<StoreCurrencies> {
   try {
     const query = container.resolve<StoreQuery | undefined>(ContainerRegistrationKeys.QUERY, {
       allowUnregistered: true,
     });
     if (!query?.graph) {
-      return null;
+      return NO_STORE_CURRENCIES;
     }
     const { data } = await query.graph({
       entity: "store",
@@ -63,12 +72,37 @@ export async function resolveStoreDefaultCurrency(
     });
     // One store is the norm; when several exist, the first one wins, matching
     // how Medusa's own admin treats the store singleton.
-    const supported = data?.[0]?.supported_currencies ?? [];
-    const code = supported.find((entry) => entry?.is_default === true)?.currency_code;
-    return code ? code.trim().toUpperCase() : null;
+    const rows = data?.[0]?.supported_currencies ?? [];
+    const supported: string[] = [];
+    let defaultCurrency: string | null = null;
+    for (const row of rows) {
+      const code = row?.currency_code?.trim().toUpperCase();
+      if (!code) {
+        continue;
+      }
+      if (!supported.includes(code)) {
+        supported.push(code);
+      }
+      if (row?.is_default === true && defaultCurrency === null) {
+        defaultCurrency = code;
+      }
+    }
+    return { defaultCurrency, supported };
   } catch {
-    return null;
+    return NO_STORE_CURRENCIES;
   }
+}
+
+/**
+ * The currency marked `is_default` in Medusa's Store settings, uppercased,
+ * or `null` when there is no store, no default among its supported
+ * currencies, or no Query registered in this container at all. Never throws;
+ * see `resolveStoreCurrencies`.
+ */
+export async function resolveStoreDefaultCurrency(
+  container: ResolvingContainer,
+): Promise<string | null> {
+  return (await resolveStoreCurrencies(container)).defaultCurrency;
 }
 
 /**
