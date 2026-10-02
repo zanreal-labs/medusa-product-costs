@@ -1,4 +1,3 @@
-
 import {
   Badge,
   Button,
@@ -14,6 +13,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { computeEconomics } from "../../modules/product-costs/lib/economics";
 import { grossFromNet } from "../../modules/product-costs/lib/money";
+import { sdk } from "../lib/sdk";
 
 const interpolate = (template: string, values: Record<string, string | number>): string =>
   Object.entries(values).reduce(
@@ -24,37 +24,6 @@ const interpolate = (template: string, values: Record<string, string | number>):
 function parseInputCost(raw: string): number | undefined {
   const value = Number.parseFloat(raw.replace(",", "."));
   return Number.isFinite(value) && value > 0 ? value : undefined;
-}
-
-function authHeaders(): Record<string, string> {
-  try {
-    const token = localStorage.getItem("medusa_auth_token");
-    if (token) return { Authorization: `Bearer ${token}` };
-  } catch {}
-  return {};
-}
-
-async function apiFetch<T>(
-  path: string,
-  init: RequestInit & { query?: Record<string, string> } = {},
-): Promise<T> {
-  const { query, ...rest } = init;
-  const url = query ? `${path}?${new URLSearchParams(query)}` : path;
-  const headers: Record<string, string> = {
-    Accept: "application/json",
-    ...((rest.headers as Record<string, string>) ?? {}),
-    ...authHeaders(),
-  };
-  const body =
-    rest.body != null
-      ? typeof rest.body === "string"
-        ? rest.body
-        : JSON.stringify(rest.body)
-      : undefined;
-  if (body && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
-  const res = await fetch(url, { ...rest, headers, credentials: "include", body });
-  if (!res.ok) throw new Error(await res.text().catch(() => res.statusText));
-  return res.json() as Promise<T>;
 }
 
 interface CostPriceRow {
@@ -96,16 +65,22 @@ interface PriceEntry {
 
 interface EntityCostCardProps {
   entityId: string;
+  /** The cost SKU to look up. Defaults to `entityId` when omitted, which covers
+   * entities whose id doubles as their SKU. Pass an explicit value when the
+   * entity carries a real SKU that differs from its id. */
+  sku?: string;
   prices?: PriceEntry[] | null;
 }
 
 /**
  * Self-contained cost card for custom entity detail pages.
- * Pass the entity ID as `entityId` — it is used directly as the cost SKU.
+ * Pass the entity ID as `entityId` — used for display (e.g. history title).
+ * Pass `sku` when the entity's cost SKU differs from its id; it defaults to `entityId`.
  * Pass the entity's `price_set.prices` as `prices` to enable margin calculation.
- * Use it for custom product entities, with the plugin to be configured with `skipVariantLinking: true`.
+ * Use it for custom product entities, with the plugin configured with `skipVariantLinking: true`.
  */
-const EntityCostCard = ({ entityId, prices }: EntityCostCardProps) => {
+const EntityCostCard = ({ entityId, sku: skuProp, prices }: EntityCostCardProps) => {
+  const effectiveSku = skuProp ?? entityId;
   const { t } = useTranslation();
   const [cost, setCost] = useState<CostPriceRow | null | undefined>(undefined);
   const [currency, setCurrency] = useState<string>("—");
@@ -121,13 +96,10 @@ const EntityCostCard = ({ entityId, prices }: EntityCostCardProps) => {
   const load = async () => {
     try {
       const [costRes, configRes] = await Promise.all([
-        apiFetch<CostsResponse>("/admin/product-costs", {
-          method: "GET",
-          query: { sku: entityId },
+        sdk.client.fetch<CostsResponse>("/admin/product-costs", {
+          query: { sku: effectiveSku },
         }),
-        apiFetch<ConfigResponse>("/admin/product-costs/config", {
-          method: "GET",
-        }),
+        sdk.client.fetch<ConfigResponse>("/admin/product-costs/config"),
       ]);
       const existing = costRes.cost_prices?.[0] ?? null;
       setCost(existing);
@@ -142,9 +114,8 @@ const EntityCostCard = ({ entityId, prices }: EntityCostCardProps) => {
   const loadHistory = async () => {
     setHistoryLoading(true);
     try {
-      const res = await apiFetch<HistoryResponse>(
-        `/admin/product-costs/${encodeURIComponent(entityId)}/history`,
-        { method: "GET" },
+      const res = await sdk.client.fetch<HistoryResponse>(
+        `/admin/product-costs/${encodeURIComponent(effectiveSku)}/history`,
       );
       setHistory(res.history ?? []);
     } catch {
@@ -156,7 +127,7 @@ const EntityCostCard = ({ entityId, prices }: EntityCostCardProps) => {
 
   useEffect(() => {
     load();
-  }, [entityId]);
+  }, [effectiveSku]);
 
   // Base price (no region rule) matching the cost currency
   const srp = prices?.find(
@@ -194,9 +165,9 @@ const EntityCostCard = ({ entityId, prices }: EntityCostCardProps) => {
     }
     setSaving(true);
     try {
-      await apiFetch("/admin/product-costs", {
+      await sdk.client.fetch("/admin/product-costs", {
         method: "POST",
-        body: JSON.stringify({ sku: entityId, unit_cost_net: parsed, source: "manual" }),
+        body: { sku: effectiveSku, unit_cost_net: parsed, source: "manual" },
       });
       toast.success(t("productCosts.entityCard.savedCost", "Cost saved"));
       setEditing(false);

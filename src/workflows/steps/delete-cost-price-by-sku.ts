@@ -40,9 +40,13 @@ export interface DeleteCostPriceBySkuInput {
  * does link variants, deleting a linked cost leaves that link behind; compose
  * `dismissRemoteLinkStep` before it in that case.
  */
-export const deleteCostPriceBySkuStep = createStep(
+export const deleteCostPriceBySkuStep = createStep<
+  DeleteCostPriceBySkuInput,
+  CostPriceDTO | null,
+  { record: CostPriceDTO | null }
+>(
   "delete-cost-price-by-sku",
-  async (input: DeleteCostPriceBySkuInput, { container }) => {
+  async (input, { container }) => {
     const service: ProductCostsModuleService = container.resolve(PRODUCT_COSTS_MODULE);
 
     const [existing] = await service.listCostPrices(
@@ -51,15 +55,24 @@ export const deleteCostPriceBySkuStep = createStep(
     ) as unknown as CostPriceDTO[];
 
     if (!existing) {
-      return new StepResponse<CostPriceDTO | null>(null);
+      // Pass a typed object as compensation data so createStep can infer
+      // TCompensateInput extends object (null alone breaks overload resolution).
+      return new StepResponse<CostPriceDTO | null, { record: CostPriceDTO | null }>(
+        null,
+        { record: null },
+      );
     }
 
     await service.deleteCostPrices([existing.id]);
 
-    return new StepResponse<CostPriceDTO | null>(existing);
+    return new StepResponse<CostPriceDTO | null, { record: CostPriceDTO | null }>(
+      existing,
+      { record: existing },
+    );
   },
-  async (deleted: CostPriceDTO | null, { container }) => {
-    if (!deleted) return;
+  async (compensationData: { record: CostPriceDTO | null } | undefined, { container }) => {
+    const record = compensationData?.record;
+    if (!record) return;
 
     const service: ProductCostsModuleService = container.resolve(PRODUCT_COSTS_MODULE);
 
@@ -68,13 +81,13 @@ export const deleteCostPriceBySkuStep = createStep(
     // CostPrice <-> ProductVariant module link above all - is left pointing
     // at a row that will never exist again.
     await service.createCostPrices([{
-      id: deleted.id,
-      sku: deleted.sku,
-      unit_cost_net: Number(deleted.unit_cost_net),
-      currency: deleted.currency,
-      source: deleted.source,
-      note: deleted.note,
-      variant_id: deleted.variant_id,
+      id: record.id,
+      sku: record.sku,
+      unit_cost_net: Number(record.unit_cost_net),
+      currency: record.currency,
+      source: record.source,
+      note: record.note,
+      variant_id: record.variant_id,
     }]);
   },
 );
