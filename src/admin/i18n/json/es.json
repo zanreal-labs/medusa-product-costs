@@ -77,7 +77,7 @@
       "importErrorLinePrefix": "Línea",
       "currencyFromStore": "Tomada de la moneda por defecto de tu tienda ({{currency}}). Guarda para registrarla aquí, o elige la moneda en que se emiten tus facturas de compra.",
       "extraCurrenciesLabel": "Registrar costes también en",
-      "extraCurrenciesHint": "Para tiendas que compran el mismo artículo en más de una moneda. Cada moneda marcada obtiene su propio coste por SKU, introducido de forma independiente - este plugin nunca convierte una en otra. Déjalo vacío si todos los proveedores te facturan en la moneda por defecto."
+      "extraCurrenciesHint": "Para tiendas que compran el mismo artículo en más de una moneda. Cada moneda marcada obtiene su propio coste por SKU, introducido de forma independiente - este plugin nunca convierte una en otra. Déjalo vacío si todos los proveedores te facturan en la moneda por defecto.",
       "storeCurrenciesHint": "Tu tienda también vende en {{currencies}}. Marca las monedas en las que te facturan tus proveedores."
     },
     "entityCard": {
