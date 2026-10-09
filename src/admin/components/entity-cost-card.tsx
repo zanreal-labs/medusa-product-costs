@@ -13,7 +13,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { computeEconomics } from "../../modules/product-costs/lib/economics";
 import { grossFromNet } from "../../modules/product-costs/lib/money";
-import { sdk } from "../lib/sdk";
+import { sdk as defaultSdk } from "../lib/sdk";
 
 const interpolate = (template: string, values: Record<string, string | number>): string =>
   Object.entries(values).reduce(
@@ -70,6 +70,10 @@ interface EntityCostCardProps {
    * entity carries a real SKU that differs from its id. */
   sku?: string;
   prices?: PriceEntry[] | null;
+  /** Client used for the card's requests. Defaults to a session-authenticated
+   * client pointed at `VITE_BACKEND_URL` (or `/`). Pass your own to use JWT
+   * auth or a different backend URL. */
+  sdk?: Pick<typeof defaultSdk, "client">;
 }
 
 /**
@@ -79,8 +83,8 @@ interface EntityCostCardProps {
  * Pass the entity's `price_set.prices` as `prices` to enable margin calculation.
  * Use it for custom product entities, with the plugin configured with `skipVariantLinking: true`.
  */
-const EntityCostCard = ({ entityId, sku: skuProp, prices }: EntityCostCardProps) => {
-  const effectiveSku = skuProp ?? entityId;
+const EntityCostCard = ({ entityId, sku: skuProp, prices, sdk = defaultSdk }: EntityCostCardProps) => {
+  const effectiveSku = skuProp?.trim() || entityId;
   const { t } = useTranslation();
   const [cost, setCost] = useState<CostPriceRow | null | undefined>(undefined);
   const [currency, setCurrency] = useState<string>("—");

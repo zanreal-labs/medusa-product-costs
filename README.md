@@ -601,9 +601,9 @@ test to add.
 
 If your "products" are custom domain entities — Flights, Accommodations, Activities, or any other model that does not use Medusa's standard `ProductVariant` — enable `skipVariantLinking: true` and use the entity ID directly as the SKU. This plugin provides two building blocks to complete the integration.
 
-### Orphan cleanup — `deleteCostPriceBySkuStep`
+### Orphan cleanup — `deleteCostPriceBySkuStep` and `deleteCostPriceWorkflow`
 
-When a custom entity is deleted its `CostPrice` record would normally be left behind, because there is no module link to cascade the delete. The plugin exports a ready-made workflow step you can compose into your own delete workflows:
+When a custom entity is deleted its `CostPrice` records would normally be left behind, because there is no module link to cascade the delete. A SKU can carry one record per currency; both the step and the workflow below delete all of them. On stores running with `skipVariantLinking: true`, compose the step into your own delete workflows:
 
 ```ts
 import { deleteCostPriceBySkuStep } from "@zanreal/medusa-product-costs/workflows"
@@ -619,7 +619,9 @@ export const deleteFlightWorkflow = createWorkflow(
 )
 ```
 
-`deleteCostPriceBySkuStep` is a no-op when no cost record exists for that SKU, and its compensation function restores the deleted record if a later step in the workflow rolls back — so the cost comes back if the entity deletion itself fails.
+`deleteCostPriceBySkuStep` is a no-op when no cost record exists for that SKU, and its compensation function restores the deleted records if a later step in the workflow rolls back — so the costs come back if the entity deletion itself fails.
+
+The step does not touch the `CostPrice ↔ ProductVariant` module link. On stores that link variants, run `deleteCostPriceWorkflow` instead (`deleteCostPriceWorkflow(container).run({ input: { sku } })`). It resolves the ids for the SKU, removes their links by cost price id (so it works even when the `variant_id` cache is stale or empty), then deletes the rows. If you compose your own, keep that order: `listCostPriceIdsBySkuStep`, `removeRemoteLinkStep({ [PRODUCT_COSTS_MODULE]: { cost_price_id: ids } })`, then `deleteCostPriceBySkuStep`. Compensation restores both the rows and the links.
 
 ### Admin UI — `EntityCostCard`
 
@@ -631,9 +633,12 @@ import EntityCostCard from "@zanreal/medusa-product-costs/admin/components/entit
 // in your custom detail page sidebar:
 <EntityCostCard
   entityId={accommodation.id}
+  sku={accommodation.sku}                    // optional — defaults to entityId
   prices={accommodation.price_set?.prices}   // optional — enables margin display
 />
 ```
+
+`sku` is the cost SKU to look up; pass it when the entity's SKU differs from its id (an empty value falls back to `entityId`). The card sends requests through a session-authenticated client; pass `sdk={yourMedusaSdk}` to use JWT auth or a different backend URL.
 
 `prices` accepts the raw `price_set.prices` array from your entity. The card picks the base price (no region rule) in the cost's currency and uses it to compute margin. Omit it when your entity has no price data; the card still shows cost and gross.
 
