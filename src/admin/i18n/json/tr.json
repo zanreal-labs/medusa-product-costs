@@ -35,7 +35,8 @@
       },
       "noCost": "satın alma maliyeti yok",
       "noSrp": "TPS yok",
-      "noVatRate": "KDV oranı yok"
+      "noVatRate": "KDV oranı yok",
+      "currencySelectLabel": "Maliyet para birimi"
     },
     "settings": {
       "vatRateInvalid": "0 ile 100 arasında bir KDV oranı girin.",
@@ -74,6 +75,9 @@
       "uploadInstead": "Bunun yerine dosya yükle",
       "importErrorsHeading": "{{count}} satır içe aktarılamadı:",
       "importErrorLinePrefix": "Satır",
+      "currencyFromStore": "Mağazanızın varsayılan para biriminden alındı ({{currency}}). Burada kalıcı olarak ayarlamak için kaydedin veya satın alma faturalarınızın düzenlendiği para birimini seçin.",
+      "extraCurrenciesLabel": "Aynı zamanda şu para birimlerinde maliyet kaydet",
+      "extraCurrenciesHint": "Aynı ürünü birden fazla para biriminde satın alan mağazalar için. İşaretlenen her para birimi, SKU başına bağımsız olarak girilen kendi maliyetini alır - bu eklenti hiçbirini diğerine çevirmez. Her tedarikçi size varsayılan para biriminde fatura kesiyorsa boş bırakın.",
       "storeCurrenciesHint": "Mağazanız ayrıca {{currencies}} ile satış yapıyor. Tedarikçilerinizin size fatura kestiği para birimlerini işaretleyin."
     },
     "entityCard": {
