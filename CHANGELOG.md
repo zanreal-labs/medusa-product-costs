@@ -10,11 +10,11 @@ registry, not merge dates on `main` - see [Releasing](./README.md#releasing).
 ## [Unreleased]
 
 ### Changed
-- `deleteCostPriceBySkuStep` now deletes every currency row for the SKU and returns an array (empty when none). Compensation restores them all and still accepts the previous single-record shape.
+- **BREAKING:** `deleteCostPriceBySkuStep` now deletes every currency row for the SKU and returns `CostPriceDTO[]` instead of `CostPriceDTO | null`. An empty array is truthy, so `if (deleted)` no longer means "something was deleted"; check `.length`. Compensation restores them all and still accepts the previous single-record shape.
 - `EntityCostCard` uses the shared session-authenticated SDK instead of its own fetch helper, so it no longer sends a bearer token. Pass the new `sdk` prop to use JWT auth. It also accepts an optional `sku` prop.
 
 ### Added
-- `deleteCostPriceWorkflow`, which removes a SKU's cost rows together with their `CostPrice ↔ ProductVariant` links, and `listCostPriceIdsBySkuStep`.
+- `deleteCostPriceWorkflow`, which removes a SKU's cost rows together with their `CostPrice ↔ ProductVariant` links, `listCostPriceIdsBySkuStep`, `listCostPriceVariantLinksStep` and `deleteCostPricesByIdsStep`. The workflow dismisses the links (it never deletes them, which would cascade to the product variants).
 
 ## [0.3.0] - 2026-09-25
 

@@ -621,7 +621,7 @@ export const deleteFlightWorkflow = createWorkflow(
 
 `deleteCostPriceBySkuStep` is a no-op when no cost record exists for that SKU, and its compensation function restores the deleted records if a later step in the workflow rolls back — so the costs come back if the entity deletion itself fails.
 
-The step does not touch the `CostPrice ↔ ProductVariant` module link. On stores that link variants, run `deleteCostPriceWorkflow` instead (`deleteCostPriceWorkflow(container).run({ input: { sku } })`). It resolves the ids for the SKU, removes their links by cost price id (so it works even when the `variant_id` cache is stale or empty), then deletes the rows. If you compose your own, keep that order: `listCostPriceIdsBySkuStep`, `removeRemoteLinkStep({ [PRODUCT_COSTS_MODULE]: { cost_price_id: ids } })`, then `deleteCostPriceBySkuStep`. Compensation restores both the rows and the links.
+The step does not touch the `CostPrice ↔ ProductVariant` module link. On stores that link variants, run `deleteCostPriceWorkflow` instead (`deleteCostPriceWorkflow(container).run({ input: { sku } })`). It resolves the ids for the SKU, dismisses their links, found by cost price id (so it works even when the `variant_id` cache is stale or empty), then deletes those same rows. If you compose your own, keep that order: `listCostPriceIdsBySkuStep`, `listCostPriceVariantLinksStep`, `dismissRemoteLinkStep`, then `deleteCostPricesByIdsStep`. Do not use `removeRemoteLinkStep`: the link cascades to the variant side and would soft-delete your product variants. Compensation restores both the rows and the links.
 
 ### Admin UI — `EntityCostCard`
 
