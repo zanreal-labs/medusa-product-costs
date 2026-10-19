@@ -6,8 +6,14 @@ import Medusa from "@medusajs/js-sdk";
  * `/admin/product-costs/*` routes authenticate the same way any built-in
  * `sdk.admin.*` call does.
  */
+// `import.meta` is guarded because tsup also bundles this module into the
+// standalone EntityCostCard, and esbuild rewrites `import.meta` to `undefined`
+// in its CJS output; an unguarded read would throw when the package is
+// `require`d. Vite (the admin build) still sees `import.meta.env` here.
+const env = typeof import.meta !== "undefined" ? import.meta.env : undefined;
+
 export const sdk = new Medusa({
   auth: { type: "session" },
-  baseUrl: import.meta.env.VITE_BACKEND_URL || "/",
-  debug: import.meta.env.DEV,
+  baseUrl: env?.VITE_BACKEND_URL || "/",
+  debug: env?.DEV ?? false,
 });
