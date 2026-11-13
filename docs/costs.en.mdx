@@ -45,9 +45,11 @@ to see it.
 
 ## When the link needs a resync
 
-The link carries `deleteCascade: true` on the product-variant side, so deleting
-a variant removes the link row. It does not repair `CostPrice.variant_id`, which
-is a plain column on this module's own table and outside the link's reach.
+Deleting a variant, or its product, removes the link row and keeps the cost:
+the `CostPrice` rows belong to the SKU, not to the variant. The other way round,
+removing a link or deleting a cost never deletes a variant. Removing the link
+row does not repair `CostPrice.variant_id`, which is a plain column on this
+module's own table and outside the link's reach.
 
 Three situations leave the cache pointing at nothing useful:
 

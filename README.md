@@ -535,9 +535,11 @@ module link is orchestration work, not something the `productCosts` module does 
 - The CSV importer does not resolve links per row (that would be a query per line for a
   potentially large file) - it persists costs first, then runs one batched variant lookup and one
   batched link update for every SKU the import touched.
-- The module link (`src/links/cost-price-product-variant.ts`) is declared with
-  `deleteCascade: true` on the product-variant side, so the link row itself is removed when the
-  underlying variant is deleted - it never points at a variant that no longer exists.
+- The module link (`src/links/cost-price-product-variant.ts`) has no `deleteCascade` on either
+  side. Removing a link or deleting a cost never deletes a product variant. Deleting a variant (or
+  its product) through Medusa's core workflows removes the link row, so it never points at a
+  variant that no longer exists, and keeps the `CostPrice` rows, because the cost belongs to the
+  SKU. A variant recreated with the same SKU is relinked by the sync below.
 - Re-run the sync at any time (e.g. after deleting and recreating a variant) by importing the
   `syncCostPriceVariantLinksWorkflow` workflow and running it with the affected SKUs, or by calling
   `POST /admin/product-costs/resync-links` (also exposed as the "Resync variant links" button on
@@ -563,6 +565,7 @@ Requires Node.js >= 22.13 (pnpm 11, pinned via `packageManager` in `package.json
 ```bash
 pnpm install
 pnpm test            # vitest - formula, CSV parser, and service-logic unit tests
+pnpm test:integration # builds, then boots a Medusa app on Postgres (needs DB_* env, see below)
 pnpm exec medusa lint src
 pnpm exec tsc --noEmit -p tsconfig.json          # backend
 pnpm exec tsc --noEmit -p src/admin/tsconfig.json # admin UI
@@ -579,7 +582,19 @@ The module-service tests construct the real `ProductCostsModuleService` and repl
 auto-generated CRUD methods (`listCostPrices`, `createCostPrices`, etc. - the ones that need a
 live database and a fully wired Medusa container) with mocks, so the hand-written business logic
 (history-on-update, CSV dedup, variant-link diffing, margin resolution) runs for real against a
-controlled fake persistence layer. There is no database in CI.
+controlled fake persistence layer. These unit tests need no database.
+
+The integration tests in `integration-tests/` boot a real Medusa app (`integration-tests/app`)
+that loads the built plugin, against Postgres, with `@medusajs/test-utils`'s
+`medusaIntegrationTestRunner`. They cover the `CostPrice <-> ProductVariant` link in both
+directions (issue #27). Point them at any Postgres you can create databases on:
+
+```bash
+DB_HOST=localhost DB_PORT=5432 DB_USERNAME=postgres DB_PASSWORD=postgres pnpm test:integration
+```
+
+Keep `DB_HOST=localhost`: for any other host the runner forces SSL. CI runs them in the
+"Integration tests" job with a Postgres service.
 
 **Known gap: no live-Postgres round-trip test for `unit_cost_net`.** Both `CostPrice` and
 `CostPriceHistory` declare `unit_cost_net` as `model.bigNumber()`, which does not necessarily
@@ -592,10 +607,9 @@ value like `10.10` after a genuine write-then-read against Postgres. A real inte
 that (`@medusajs/test-utils`'s `moduleIntegrationTestRunner`, pointed at a throwaway Postgres -
 Docker locally makes that easy to spin up, same pattern as `plugin:db:generate` above) was
 assessed and intentionally not added in this pass: that runner is built around Jest's test
-globals, this project's test runner is Vitest, and CI has no database service configured, so a
-DB-backed test would not run there and would make the local `pnpm test` gate depend on Docker
-being available. If this module ever moves to Jest, or CI grows a Postgres service, this is the
-test to add.
+globals, this project's test runner is Vitest, and a DB-backed test would make the local
+`pnpm test` gate depend on Postgres being available. CI now has a Postgres service for the
+integration tests above, so `integration-tests/` is where this test would go.
 
 ## Custom entity support
 
@@ -621,7 +635,7 @@ export const deleteFlightWorkflow = createWorkflow(
 
 `deleteCostPriceBySkuStep` is a no-op when no cost record exists for that SKU, and its compensation function restores the deleted records if a later step in the workflow rolls back — so the costs come back if the entity deletion itself fails.
 
-The step does not touch the `CostPrice ↔ ProductVariant` module link. On stores that link variants, run `deleteCostPriceWorkflow` instead (`deleteCostPriceWorkflow(container).run({ input: { sku } })`). It resolves the ids for the SKU, dismisses their links, found by cost price id (so it works even when the `variant_id` cache is stale or empty), then deletes those same rows. If you compose your own, keep that order: `listCostPriceIdsBySkuStep`, `listCostPriceVariantLinksStep`, `dismissRemoteLinkStep`, then `deleteCostPricesByIdsStep`. Do not use `removeRemoteLinkStep`: the link cascades to the variant side and would soft-delete your product variants. Compensation restores both the rows and the links.
+The step does not touch the `CostPrice ↔ ProductVariant` module link. On stores that link variants, run `deleteCostPriceWorkflow` instead (`deleteCostPriceWorkflow(container).run({ input: { sku } })`). It resolves the ids for the SKU, dismisses their links, found by cost price id (so it works even when the `variant_id` cache is stale or empty), then deletes those same rows. If you compose your own, keep that order: `listCostPriceIdsBySkuStep`, `listCostPriceVariantLinksStep`, `dismissRemoteLinkStep`, then `deleteCostPricesByIdsStep`. Compensation restores both the rows and the links.
 
 ### Admin UI — `EntityCostCard`
 

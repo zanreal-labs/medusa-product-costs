@@ -37,9 +37,9 @@ export interface CostPriceIdsInput {
 /**
  * Resolves the real `CostPrice <-> ProductVariant` link pairs for the given
  * cost price ids, whatever the `variant_id` cache column says. The result is
- * meant for `dismissRemoteLinkStep`, not `removeRemoteLinkStep`: the link
- * carries `deleteCascade` on the variant side, so deleting it through the cost
- * price would soft-delete the variants too.
+ * meant for `dismissRemoteLinkStep`. The link has no `deleteCascade` (see
+ * `src/links/cost-price-product-variant.ts`), so dismissing it never touches
+ * the product variants.
  */
 export async function listCostPriceVariantLinks(
   input: CostPriceIdsInput,
@@ -176,9 +176,7 @@ export const deleteCostPricesByIdsStep = createStep(
  * dismiss the `CostPrice <-> ProductVariant` module link. On a store that
  * links variants, use `deleteCostPriceWorkflow` instead, or compose
  * `listCostPriceIdsBySkuStep`, `listCostPriceVariantLinksStep`,
- * `dismissRemoteLinkStep` and `deleteCostPricesByIdsStep`. Do not use
- * `removeRemoteLinkStep` here: the link has `deleteCascade` on the variant
- * side, so it would soft-delete the product variants.
+ * `dismissRemoteLinkStep` and `deleteCostPricesByIdsStep`.
  */
 export const deleteCostPriceBySkuStep = createStep(
   "delete-cost-price-by-sku",

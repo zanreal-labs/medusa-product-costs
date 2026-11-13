@@ -9,12 +9,15 @@ registry, not merge dates on `main` - see [Releasing](./README.md#releasing).
 
 ## [Unreleased]
 
+### Fixed
+- The `CostPrice ↔ ProductVariant` link no longer has `deleteCascade` on the product-variant side. Before, removing a cost price's link through `link.delete` / `removeRemoteLinkStep` soft-deleted the product variant (#27). Deleting a variant or a product still removes the link row and keeps the `CostPrice` rows. The link table schema is unchanged.
+
 ### Changed
 - **BREAKING:** `deleteCostPriceBySkuStep` now deletes every currency row for the SKU and returns `CostPriceDTO[]` instead of `CostPriceDTO | null`. An empty array is truthy, so `if (deleted)` no longer means "something was deleted"; check `.length`. Compensation restores them all and still accepts the previous single-record shape.
 - `EntityCostCard` uses the shared session-authenticated SDK instead of its own fetch helper, so it no longer sends a bearer token. Pass the new `sdk` prop to use JWT auth. It also accepts an optional `sku` prop.
 
 ### Added
-- `deleteCostPriceWorkflow`, which removes a SKU's cost rows together with their `CostPrice ↔ ProductVariant` links, `listCostPriceIdsBySkuStep`, `listCostPriceVariantLinksStep` and `deleteCostPricesByIdsStep`. The workflow dismisses the links (it never deletes them, which would cascade to the product variants).
+- `deleteCostPriceWorkflow`, which removes a SKU's cost rows together with their `CostPrice ↔ ProductVariant` links, `listCostPriceIdsBySkuStep`, `listCostPriceVariantLinksStep` and `deleteCostPricesByIdsStep`. The workflow dismisses the links.
 
 ## [0.3.0] - 2026-09-25
 
