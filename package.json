@@ -61,6 +61,7 @@
     "typecheck:admin": "tsc --noEmit -p src/admin/tsconfig.json",
     "test": "pnpm run typecheck && pnpm run typecheck:admin && vitest run",
     "test:unit": "vitest run",
+    "test:integration": "medusa plugin:build && vitest run --config vitest.integration.mts",
     "test:watch": "vitest",
     "prepare": "medusa plugin:build && tsup",
     "prepublishOnly": "medusa plugin:build && tsup"

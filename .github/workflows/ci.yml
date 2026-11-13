@@ -43,6 +43,48 @@ jobs:
       - name: Build
         run: pnpm build
 
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # Boots a real Medusa app (integration-tests/app) that loads the built
+      # plugin. DB_HOST must be "localhost": for any other host the Medusa test
+      # runner forces SSL, which this Postgres service does not offer.
+      - name: Integration tests
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USERNAME: postgres
+          DB_PASSWORD: postgres
+        run: pnpm test:integration
+
   migrations-up-to-date:
     name: Migrations match the models
     runs-on: ubuntu-latest

@@ -47,9 +47,11 @@ dalej jest anomalią i operator ma prawo ją zobaczyć.
 
 ## Kiedy powiązanie wymaga odświeżenia
 
-Powiązanie ma po stronie wariantu `deleteCascade: true`, więc skasowanie
-wariantu usuwa wiersz powiązania. Nie naprawia to jednak `CostPrice.variant_id`,
-bo to zwykła kolumna w tabeli tego modułu, poza zasięgiem powiązania.
+Skasowanie wariantu albo całego produktu usuwa wiersz powiązania, a koszt
+zostaje: wiersze `CostPrice` należą do SKU, nie do wariantu. W drugą stronę
+usunięcie powiązania albo kosztu nigdy nie kasuje wariantu. Zniknięcie wiersza
+powiązania nie naprawia jednak `CostPrice.variant_id`, bo to zwykła kolumna
+w tabeli tego modułu, poza zasięgiem powiązania.
 
 Trzy sytuacje zostawiają cache wskazujący donikąd:
 

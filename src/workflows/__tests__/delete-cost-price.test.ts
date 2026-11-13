@@ -39,7 +39,7 @@ describe("deleteCostPriceWorkflow", () => {
     calls.remove.length = 0;
   });
 
-  it("dismisses the links (never removes them, which would cascade to variants), then deletes the same rows", async () => {
+  it("dismisses the links (never removes them), then deletes the same rows", async () => {
     const { container, service, query } = buildContainer(
       [{ id: "cp_1" }, { id: "cp_2" }],
       [{ product_variant_id: "variant_1", cost_price_id: "cp_1" }],
