@@ -560,7 +560,7 @@ the Admin API section above) instead of silently picking one.
 
 ## Development
 
-Requires Node.js >= 22.13 (pnpm 11, pinned via `packageManager` in `package.json`, needs it).
+Requires Node.js >= 22.22 (Medusa 2.23 requires it; pnpm 11, pinned via `packageManager` in `package.json`, needs it).
 
 ```bash
 pnpm install

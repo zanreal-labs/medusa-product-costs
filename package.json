@@ -1,6 +1,6 @@
 {
   "name": "@zanreal/medusa-product-costs",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Medusa v2 plugin for tracking product purchase cost (COGS) per SKU and computing margin, break-even price and net income against a selling price.",
   "keywords": [
     "break-even",
@@ -33,7 +33,7 @@
     "CHANGELOG.md"
   ],
   "dependencies": {
-    "@zanreal/medusa-admin-kit": "^0.2.1"
+    "@zanreal/medusa-admin-kit": "^0.5.0"
   },
   "exports": {
     "./package.json": "./package.json",
@@ -67,49 +67,49 @@
     "prepublishOnly": "medusa plugin:build && tsup"
   },
   "devDependencies": {
-    "@medusajs/admin-sdk": "2.22.1",
-    "@medusajs/admin-shared": "2.22.1",
-    "@medusajs/cli": "2.22.1",
-    "@medusajs/eslint-plugin": "2.22.1",
-    "@medusajs/framework": "2.22.1",
-    "@medusajs/icons": "2.22.1",
-    "@medusajs/js-sdk": "2.22.1",
-    "@medusajs/medusa": "2.22.1",
-    "@medusajs/orchestration": "2.22.1",
-    "@medusajs/test-utils": "2.22.1",
-    "@medusajs/ui": "4.2.8",
+    "@medusajs/admin-sdk": "2.23.0",
+    "@medusajs/admin-shared": "2.23.0",
+    "@medusajs/cli": "2.23.0",
+    "@medusajs/eslint-plugin": "2.23.0",
+    "@medusajs/framework": "2.23.0",
+    "@medusajs/icons": "2.23.0",
+    "@medusajs/js-sdk": "2.23.0",
+    "@medusajs/medusa": "2.23.0",
+    "@medusajs/orchestration": "2.23.0",
+    "@medusajs/test-utils": "2.23.0",
+    "@medusajs/ui": "4.3.0",
     "@swc/core": "^1.16.2",
     "@types/node": "^20.19.43",
-    "@types/react": "^18.3.31",
-    "@types/react-dom": "^18.3.7",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "eslint": "^9.39.5",
-    "i18next": "^23.16.8",
+    "i18next": "^27.1.1",
     "jiti": "^2.7.0",
     "prop-types": "^15.8.1",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-i18next": "^13.5.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-i18next": "^18.0.1",
     "ts-node": "^10.9.2",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
-    "vite": "^7.3.6",
+    "vite": "^8.3.8",
     "vitest": "^3.2.7",
     "yalc": "1.0.0-pre.53"
   },
   "peerDependencies": {
-    "@medusajs/admin-sdk": "2.22.1",
-    "@medusajs/admin-shared": "2.22.1",
-    "@medusajs/cli": "2.22.1",
-    "@medusajs/framework": "2.22.1",
-    "@medusajs/icons": "2.22.1",
-    "@medusajs/js-sdk": "2.22.1",
-    "@medusajs/medusa": "2.22.1",
-    "@medusajs/test-utils": "2.22.1",
-    "@medusajs/ui": "4.2.8",
-    "react-i18next": "^13.5.0"
+    "@medusajs/admin-sdk": "2.23.0",
+    "@medusajs/admin-shared": "2.23.0",
+    "@medusajs/cli": "2.23.0",
+    "@medusajs/framework": "2.23.0",
+    "@medusajs/icons": "2.23.0",
+    "@medusajs/js-sdk": "2.23.0",
+    "@medusajs/medusa": "2.23.0",
+    "@medusajs/test-utils": "2.23.0",
+    "@medusajs/ui": "4.3.0",
+    "react-i18next": "^18.0.1"
   },
   "engines": {
-    "node": ">=22.13"
+    "node": ">=22.22.0"
   },
   "packageManager": "pnpm@11.13.0"
 }
