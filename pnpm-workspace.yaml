@@ -24,4 +24,4 @@ allowBuilds:
 # cooldown. Versions are listed exactly, so an admin-kit release that is NOT
 # named here is still held for the full 24 hours.
 minimumReleaseAgeExclude:
-  - '@zanreal/medusa-admin-kit@0.1.0 || 0.2.0'
+  - '@zanreal/medusa-admin-kit@0.1.0 || 0.2.0 || 0.5.0'

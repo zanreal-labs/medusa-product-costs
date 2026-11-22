@@ -9,10 +9,18 @@ registry, not merge dates on `main` - see [Releasing](./README.md#releasing).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.4.0] - 2026-11-22
+
 ### Fixed
 - The `CostPrice ↔ ProductVariant` link no longer has `deleteCascade` on the product-variant side. Before, removing a cost price's link through `link.delete` / `removeRemoteLinkStep` soft-deleted the product variant (#27). Deleting a variant or a product still removes the link row and keeps the `CostPrice` rows. The link table schema is unchanged.
 
 ### Changed
+- **Requires Medusa 2.23.0.** Built and tested against Medusa 2.23.0 (was 2.18.0 in 0.3.0): the `@medusajs/*` peers pin 2.23.0 (`@medusajs/ui` 4.3.0), so npm will not install this release next to an older Medusa - stay on 0.3.0 there. Medusa 2.23 requires Node.js 22.22 or newer, and so does this package.
+- **React 19 admin toolchain.** The admin and `EntityCostCard` are built with React 19, Vite 8 and the i18n majors the 2.23.0 dashboard ships (`react-i18next` 18, `i18next` 27); the `react-i18next` peer is now `^18.0.1`.
+- `@zanreal/medusa-admin-kit` `^0.5.0`, its release on Medusa 2.23.0 (was `^0.2.1`).
+- Dependency updates now come from Renovate, run weekly by the `zanek-ai` app from `.github/workflows/renovate.yml`.
 - **BREAKING:** `deleteCostPriceBySkuStep` now deletes every currency row for the SKU and returns `CostPriceDTO[]` instead of `CostPriceDTO | null`. An empty array is truthy, so `if (deleted)` no longer means "something was deleted"; check `.length`. Compensation restores them all and still accepts the previous single-record shape.
 - `EntityCostCard` uses the shared session-authenticated SDK instead of its own fetch helper, so it no longer sends a bearer token. Pass the new `sdk` prop to use JWT auth. It also accepts an optional `sku` prop.
 
@@ -112,7 +120,8 @@ First public release. MIT, published from CI with npm provenance.
   per-product cost-coverage column, and the product page as the primary costing surface.
 - Admin UI in English and Polish.
 
-[Unreleased]: https://github.com/zanreal-labs/medusa-product-costs/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/zanreal-labs/medusa-product-costs/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/zanreal-labs/medusa-product-costs/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/zanreal-labs/medusa-product-costs/releases/tag/v0.3.0
 [0.2.0]: https://github.com/zanreal-labs/medusa-product-costs/releases/tag/v0.2.0
 [0.1.0]: https://github.com/zanreal-labs/medusa-product-costs/releases/tag/v0.1.0
