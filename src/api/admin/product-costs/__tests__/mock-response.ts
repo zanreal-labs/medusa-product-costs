@@ -1,4 +1,4 @@
-import { vi } from "vitest";
+import { vi, type Mock } from "vitest";
 
 /**
  * Shared test double for `MedusaResponse` across the `/admin/product-costs`
@@ -6,7 +6,7 @@ import { vi } from "vitest";
  * as a suite - only `route.test.ts` files import it.
  */
 export function createMockResponse() {
-  const res: { status: ReturnType<typeof vi.fn>; json: ReturnType<typeof vi.fn> } = {
+  const res: { status: Mock; json: Mock } = {
     json: vi.fn(),
     status: vi.fn(),
   };

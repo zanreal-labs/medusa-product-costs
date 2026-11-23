@@ -1,6 +1,6 @@
 import type { StepExecutionContext } from "@medusajs/framework/workflows-sdk";
 import { Modules } from "@medusajs/framework/utils";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, type Mock } from "vitest";
 import { PRODUCT_COSTS_MODULE } from "../../../modules/product-costs";
 import { resolveVariantIdBySku } from "../resolve-variant-id";
 
@@ -21,7 +21,7 @@ import { resolveVariantIdBySku } from "../resolve-variant-id";
  * registered at all - the `allowUnregistered` case.
  */
 function containerWith(
-  listProductVariants: ReturnType<typeof vi.fn>,
+  listProductVariants: Mock,
   productCosts: { moduleOptions?: { skipVariantLinking?: boolean } } | undefined = {
     moduleOptions: { skipVariantLinking: false },
   },
