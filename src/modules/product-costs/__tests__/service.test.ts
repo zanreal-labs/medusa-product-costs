@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import ProductCostsModuleService from "../service";
 
 /**
@@ -48,15 +48,15 @@ function createService(
     {},
     options ?? undefined,
   ) as ProductCostsModuleService & {
-    listCostPrices: ReturnType<typeof vi.fn>;
-    createCostPrices: ReturnType<typeof vi.fn>;
-    updateCostPrices: ReturnType<typeof vi.fn>;
-    createCostPriceHistories: ReturnType<typeof vi.fn>;
-    listAndCountCostPrices: ReturnType<typeof vi.fn>;
-    listAndCountCostPriceHistories: ReturnType<typeof vi.fn>;
-    listProductCostsSettings: ReturnType<typeof vi.fn>;
-    createProductCostsSettings: ReturnType<typeof vi.fn>;
-    updateProductCostsSettings: ReturnType<typeof vi.fn>;
+    listCostPrices: Mock;
+    createCostPrices: Mock;
+    updateCostPrices: Mock;
+    createCostPriceHistories: Mock;
+    listAndCountCostPrices: Mock;
+    listAndCountCostPriceHistories: Mock;
+    listProductCostsSettings: Mock;
+    createProductCostsSettings: Mock;
+    updateProductCostsSettings: Mock;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     baseRepository_: any;
   };
